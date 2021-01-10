@@ -23,8 +23,8 @@ pub enum Src8 {
 }
 
 impl Src8 {
-    pub fn get_value(gb: &Gameboy, x: &Src8) -> u8 {
-        match *x {
+    pub fn get_value(gb: &Gameboy, src: &Src8) -> u8 {
+        match *src {
             Src8::R8(r) => gb.regs[r],
             Src8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
             Src8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize],
@@ -50,9 +50,8 @@ pub enum Dst8 {
 }
 
 impl Dst8 {
-    // TODO May be able to replace with a modify function. Needed for inc/dec.
-    pub fn get_value(gb: &Gameboy, x: &Dst8) -> u8 {
-        match *x {
+    pub fn get_value(gb: &Gameboy, dst: &Dst8) -> u8 {
+        match *dst {
             Dst8::R8(r) => gb.regs[r],
             Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
             Dst8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize],
@@ -61,8 +60,8 @@ impl Dst8 {
         }
     }
 
-    pub fn set_value(gb: &mut Gameboy, x: &Dst8, value: u8) {
-        match *x {
+    pub fn set_value(gb: &mut Gameboy, dst: &Dst8, value: u8) {
+        match *dst {
             Dst8::R8(r) => gb.regs[r] = value,
             Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize] = value,
             Dst8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize] = value,
@@ -84,8 +83,8 @@ pub enum Src16 {
 }
 
 impl Src16 {
-    pub fn get_value(gb: &Gameboy, x: &Src16) -> u16 {
-        match *x {
+    pub fn get_value(gb: &Gameboy, src: &Src16) -> u16 {
+        match *src {
             Src16::R16(rr) => rr_to_u16(gb, rr),
             Src16::RSP => gb.sp,
             Src16::D16(nn) => nn,
@@ -104,8 +103,17 @@ pub enum Dst16 {
 }
 
 impl Dst16 {
-    pub fn set_value(gb: &mut Gameboy, x: &Dst16, value: u16) {
-        match *x {
+    pub fn get_value(gb: &Gameboy, dst: &Dst16) -> u16 {
+        match *dst {
+            Dst16::R16(rr) => rr_to_u16(gb, rr),
+            Dst16::RSP => gb.sp,
+            Dst16::IdNN(nn) => 
+                ((gb.mem[nn as usize] as u16) << 8) | (gb.mem[(nn + 1) as usize] as u16),
+        }
+    }
+
+    pub fn set_value(gb: &mut Gameboy, dst: &Dst16, value: u16) {
+        match *dst {
             Dst16::R16(rr) => {
                 gb.regs[rr.0] = (value >> 8) as u8;
                 gb.regs[rr.1] = value as u8;
@@ -155,6 +163,11 @@ pub enum Instr {
     Xor(Src8),
     Or(Src8),
     Cp(Src8),
+    // 16-bit arithmetic
+    Add16HL(Src16),
+    Add16SP(i8),
+    Inc16(Dst16),
+    Dec16(Dst16),
 }
 
 impl Instr {
@@ -167,6 +180,7 @@ impl Instr {
 
             Instr::Ld(dst, src) => match (dst, src) {
                 (Dst8::R8(_), Src8::R8(_)) => 1,
+                (Dst8::R8(_), Src8::D8(_)) => 2,
                 (Dst8::Id(_), Src8::R8(_)) | (Dst8::R8(_), Src8::Id(_)) => 2,
                 (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => 2,
                 (Dst8::IdFF(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFF(_)) => 3,
@@ -199,6 +213,10 @@ impl Instr {
                 Src8::R8(_) => 1,
                 _ => 2,
             },
+
+            Instr::Add16HL(_) => 2,
+            Instr::Add16SP(_) => 4,
+            Instr::Inc16(_) | Instr::Dec16(_) => 2,
         }
     }
 
@@ -211,6 +229,7 @@ impl Instr {
 
             Instr::Ld(dst, src) => match (dst, src) {
                 (Dst8::R8(_), Src8::R8(_)) => 1,
+                (Dst8::R8(_), Src8::D8(_)) => 2,
                 (Dst8::Id(_), Src8::R8(_)) | (Dst8::R8(_), Src8::Id(_)) => 1,
                 (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => 2,
                 (Dst8::IdFF(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFF(_)) => 2,
@@ -234,6 +253,10 @@ impl Instr {
                 Src8::D8(_) => 2,
                 _ => 1,
             },
+
+            Instr::Add16HL(_) => 1,
+            Instr::Add16SP(_) => 2,
+            Instr::Inc16(_) | Instr::Dec16(_) => 1,
         }
     }
 }

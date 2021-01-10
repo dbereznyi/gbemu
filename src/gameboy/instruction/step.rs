@@ -33,6 +33,14 @@ pub fn step(gb: &mut Gameboy) {
         Instr::Xor(src)        => bitwise(gb, src, BitwiseOp::Xor),
         Instr::Or(src)         => bitwise(gb, src, BitwiseOp::Or),
         Instr::Cp(src)         => cp(gb, src),
+        // 16-bit arithmetic
+        Instr::Add16HL(src)    => add_16_hl(gb, src),
+        Instr::Add16SP(n)      => {
+            let value = Src16::get_value(gb, &Src16::SPD8(*n));
+            Dst16::set_value(gb, &Dst16::RSP, value);
+        },
+        Instr::Inc16(dst)      => inc_dec_16(gb, dst, IncDec::Inc),
+        Instr::Dec16(dst)      => inc_dec_16(gb, dst, IncDec::Dec),
     }
     // TODO Conditional instructions need to check the flags to compute cycles
 
@@ -44,7 +52,7 @@ pub fn step(gb: &mut Gameboy) {
 fn decode(gb: &mut Gameboy) -> Instr {
     let opcode = gb.mem[gb.pc as usize];
     // The bottom three bits of the opcode are used to indicate src reg for certain loads
-    let r_src = (opcode & 0b00000111).into();
+    let r_src = (opcode & 0b00000111) as usize;
     // Grab data from PC+1 and PC+2 in case we need them as arguments
     // This shouldn't go out of bounds since instructions aren't executed in top of mem
     let n = gb.mem[(gb.pc + 1) as usize];
@@ -54,11 +62,14 @@ fn decode(gb: &mut Gameboy) -> Instr {
         0x00        => Instr::Nop,
         0x01        => Instr::Ld16(Dst16::R16(RBC), Src16::D16(nn)),
         0x02        => Instr::Ld(Dst8::Id(RBC), Src8::R8(RA)),
+        0x03        => Instr::Inc16(Dst16::R16(RBC)),
         0x04        => Instr::Inc(Dst8::R8(RB)),
         0x05        => Instr::Dec(Dst8::R8(RB)),
         0x06        => Instr::Ld(Dst8::R8(RB), Src8::D8(n)),
         0x08        => Instr::Ld16(Dst16::IdNN(nn), Src16::RSP),
+        0x09        => Instr::Add16HL(Src16::R16(RBC)),
         0x0a        => Instr::Ld(Dst8::R8(RA), Src8::Id(RBC)),
+        0x0b        => Instr::Dec16(Dst16::R16(RBC)),
         0x0c        => Instr::Inc(Dst8::R8(RC)),
         0x0d        => Instr::Dec(Dst8::R8(RC)),
         0x0e        => Instr::Ld(Dst8::R8(RC), Src8::D8(n)),
@@ -66,30 +77,39 @@ fn decode(gb: &mut Gameboy) -> Instr {
         0x10        => Instr::Stop,
         0x11        => Instr::Ld16(Dst16::R16(RDE), Src16::D16(nn)),
         0x12        => Instr::Ld(Dst8::Id(RDE), Src8::R8(RA)),
+        0x13        => Instr::Inc16(Dst16::R16(RDE)),
         0x14        => Instr::Inc(Dst8::R8(RD)),
         0x15        => Instr::Dec(Dst8::R8(RD)),
         0x16        => Instr::Ld(Dst8::R8(RD), Src8::D8(n)),
+        0x19        => Instr::Add16HL(Src16::R16(RDE)),
         0x1a        => Instr::Ld(Dst8::R8(RA), Src8::Id(RDE)),
+        0x1b        => Instr::Dec16(Dst16::R16(RDE)),
         0x1c        => Instr::Inc(Dst8::R8(RE)),
         0x1d        => Instr::Dec(Dst8::R8(RE)),
         0x1e        => Instr::Ld(Dst8::R8(RE), Src8::D8(n)),
 
         0x21        => Instr::Ld16(Dst16::R16(RHL), Src16::D16(nn)),
         0x22        => Instr::LdInc(Dst8::Id(RHL), Src8::R8(RA)),
+        0x23        => Instr::Inc16(Dst16::R16(RHL)),
         0x24        => Instr::Inc(Dst8::R8(RH)),
         0x25        => Instr::Dec(Dst8::R8(RH)),
         0x26        => Instr::Ld(Dst8::R8(RH), Src8::D8(n)),
+        0x29        => Instr::Add16HL(Src16::R16(RHL)),
         0x2a        => Instr::LdInc(Dst8::R8(RA), Src8::Id(RHL)),
+        0x2b        => Instr::Inc16(Dst16::R16(RHL)),
         0x2c        => Instr::Inc(Dst8::R8(RL)),
         0x2d        => Instr::Dec(Dst8::R8(RL)),
         0x2e        => Instr::Ld(Dst8::R8(RL), Src8::D8(n)),
 
         0x31        => Instr::Ld16(Dst16::RSP, Src16::D16(nn)),
         0x32        => Instr::LdDec(Dst8::Id(RHL), Src8::R8(RA)),
+        0x33        => Instr::Inc16(Dst16::RSP),
         0x34        => Instr::Inc(Dst8::Id(RHL)),
         0x35        => Instr::Dec(Dst8::Id(RHL)),
         0x36        => Instr::Ld(Dst8::Id(RHL), Src8::D8(n)),
+        0x39        => Instr::Add16HL(Src16::RSP),
         0x3a        => Instr::LdDec(Dst8::R8(RA), Src8::Id(RHL)),
+        0x3b        => Instr::Dec16(Dst16::RSP),
         0x3c        => Instr::Inc(Dst8::R8(RA)),
         0x3d        => Instr::Dec(Dst8::R8(RA)),
         0x3e        => Instr::Ld(Dst8::R8(RA), Src8::D8(n)),
@@ -170,6 +190,7 @@ fn decode(gb: &mut Gameboy) -> Instr {
         0xe4        => panic!("Invalid opcode {:#2x}", opcode),
         0xe5        => Instr::Push(RHL),
         0xe6        => Instr::And(Src8::D8(n)),
+        0xe8        => Instr::Add16SP(n as i8),
         0xea        => Instr::Ld(Dst8::IdNN(nn), Src8::R8(RA)),
         0xeb        => panic!("Invalid opcode {:#2x}", opcode),
         0xec        => panic!("Invalid opcode {:#2x}", opcode),

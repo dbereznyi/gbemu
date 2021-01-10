@@ -124,6 +124,29 @@ pub fn cp(gb: &mut Gameboy, src: &Src8) {
     gb.regs[RF] |= FLAG_C & !compute_carry_flag(gb.regs[RA], -(value as i8) as u8);
 }
 
+pub fn add_16_hl(gb: &mut Gameboy, src: &Src16) {
+    let value = Src16::get_value(gb, &src);
+    let sum = (Wrapping(rr_to_u16(gb, RHL)) + Wrapping(value)).0;
+
+    gb.regs[RF] &= !(FLAG_N ^ FLAG_H ^ FLAG_C);
+    gb.regs[RF] &= !FLAG_N;
+    gb.regs[RF] |= compute_half_carry_flag(gb.regs[RH], (value >> 8) as u8);
+    gb.regs[RF] |= compute_carry_flag(gb.regs[RH], (value >> 8) as u8);
+
+    gb.regs[RH] = (sum >> 8) as u8;
+    gb.regs[RL] = sum as u8;
+}
+
+pub fn inc_dec_16(gb: &mut Gameboy, dst: &Dst16, mode: IncDec) {
+    let value = Dst16::get_value(gb, &dst);
+    let computed_value = match mode {
+        IncDec::Inc => (Wrapping(value) + Wrapping(1)).0,
+        IncDec::Dec => (Wrapping(value) + Wrapping((-1 as i16) as u16)).0,
+    };
+
+    Dst16::set_value(gb, &dst, computed_value);
+}
+
 // Helper functions
 
 /// Offset (i.e add or subtract) a 16-bit register by a given amount

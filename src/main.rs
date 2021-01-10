@@ -4,30 +4,39 @@ use crate::gameboy::{Gameboy, step};
 
 fn main() {
     let mut gb = Gameboy::new();
-
-    // LD B, 0xEE
-    gb.mem[0x0100] = 0x06;
-    gb.mem[0x0101] = 0xee;
-    // LD C, B
-    gb.mem[0x0102] = 0x48;
-    // NOP
-    gb.mem[0x0103] = 0x00;
-    // PUSH BC
-    gb.mem[0x0104] = 0xc5;
-    // POP DE
-    gb.mem[0x0105] = 0xd1;
-    
-    println!("{}\n", gb);
-
-    step_display(&mut gb, "LD B, 0xEE");
-    step_display(&mut gb, "LD C, B");
-    step_display(&mut gb, "NOP");
-    step_display(&mut gb, "PUSH BC");
-    step_display(&mut gb, "POP DE");
+    run_test_program(&mut gb);
 }
 
-fn step_display(gb: &mut Gameboy, instr_mnemonic: &str) {
-    println!("{}", instr_mnemonic);
+fn run_test_program(gb: &mut Gameboy) {
+    let program = [
+        ("LD B, 0xEE", vec!(0x06, 0xee)),
+        ("LD C, B", vec!(0x48)),
+        ("NOP", vec!(0x00)),
+        ("PUSH BC", vec!(0xc5)),
+        ("POP DE", vec!(0xd1)),
+        ("ADD HL, DE", vec!(0x19)),
+        ("LD A, 0x01", vec!(0x3e, 0x01)),
+        ("SUB 0x01", vec!(0xd6, 0x01)),
+    ];
+
+    // Load program
+    let mut i = 0x0100;
+    for (_, bytes) in program.iter() {
+        for byte in bytes.iter() {
+            gb.mem[i] = *byte;
+            i += 1;
+        }
+    }
+    
+    // Execute program
+    println!("==> initial state\n{}\n", gb);
+    for (mnemonic, _) in program.iter() {
+        step_display(gb, mnemonic);
+    }
+}
+
+fn step_display(gb: &mut Gameboy, mnemonic: &str) {
+    println!("==> {}", mnemonic);
     step(gb);
     println!("{}\n", gb);
 }
