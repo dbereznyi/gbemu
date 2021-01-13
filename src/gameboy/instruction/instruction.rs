@@ -1,4 +1,5 @@
 use std::num::Wrapping;
+use std::sync::atomic::{Ordering};
 use super::super::gameboy::{*};
 
 pub enum CarryMode {
@@ -27,8 +28,9 @@ impl Src8 {
         match *src {
             Src8::R8(r) => gb.regs[r],
             Src8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
-            Src8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize],
-            Src8::IdFF(n) => gb.mem[(0xFF00 | (n as u16)) as usize],
+            Src8::IdFFRC => gb.io_regs[gb.regs[RC] as usize].load(Ordering::Acquire),
+            Src8::IdFF(n) => gb.io_regs[n as usize].load(Ordering::Acquire),
+            // TODO handle special memory areas?
             Src8::IdNN(nn) => gb.mem[nn as usize],
             Src8::D8(n) => n,
         }
@@ -54,8 +56,9 @@ impl Dst8 {
         match *dst {
             Dst8::R8(r) => gb.regs[r],
             Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
-            Dst8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize],
-            Dst8::IdFF(n) => gb.mem[(0xFF00 | (n as u16)) as usize],
+            Dst8::IdFFRC => gb.io_regs[gb.regs[RC] as usize].load(Ordering::Relaxed),
+            Dst8::IdFF(n) => gb.io_regs[n as usize].load(Ordering::Relaxed),
+            // TODO handle special memory areas?
             Dst8::IdNN(nn) => gb.mem[nn as usize],
         }
     }
@@ -64,8 +67,9 @@ impl Dst8 {
         match *dst {
             Dst8::R8(r) => gb.regs[r] = value,
             Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize] = value,
-            Dst8::IdFFRC => gb.mem[(0xFF00 | (gb.regs[RC] as u16)) as usize] = value,
-            Dst8::IdFF(n) => gb.mem[(0xFF00 | (n as u16)) as usize] = value,
+            Dst8::IdFFRC => gb.io_regs[gb.regs[RC] as usize].store(value, Ordering::Relaxed),
+            Dst8::IdFF(n) => gb.io_regs[n as usize].store(value, Ordering::Relaxed),
+            // TODO handle special memory areas?
             Dst8::IdNN(nn) => gb.mem[nn as usize] = value,
         }
     }
@@ -139,11 +143,35 @@ pub enum AddSub {
     Add, Sub
 }
 
+pub enum Cond {
+    Z,
+    Nz,
+    C,
+    Nc,
+}
+
+impl Cond {
+    pub fn check(gb: &Gameboy, cond: &Cond) -> bool {
+        match cond {
+            Cond::Z => ((gb.regs[RF] & FLAG_Z) >> 7) == 1,
+            Cond::Nz => ((gb.regs[RF] & FLAG_Z) >> 7) == 0,
+            Cond::C => ((gb.regs[RF] & FLAG_C) >> 4) == 1,
+            Cond::Nc => ((gb.regs[RF] & FLAG_C) >> 4) == 0,
+        }
+    }
+}
+
 pub enum Instr {
     // Control/misc
     Nop,
     Stop,
     Halt,
+    Di,
+    Ei,
+    Ccf,
+    Scf,
+    Daa,
+    Cpl,
     // 8-bit load
     Ld(Dst8, Src8),
     LdInc(Dst8, Src8),
@@ -168,15 +196,48 @@ pub enum Instr {
     Add16SP(i8),
     Inc16(Dst16),
     Dec16(Dst16),
+    // Control-flow
+    Jp(Src16),
+    JpCC(Cond, u16),
+    Jr(i8),
+    JrCC(Cond, i8),
+    Call(u16),
+    CallCC(Cond, u16),
+    Ret,
+    RetCC(Cond),
+    Reti,
+    Rst(u8),
+    // Rotates, shifts, bit operations
+    Rlca,
+    Rla,
+    Rrca,
+    Rra,
+    Rlc(Dst8),
+    Rrc(Dst8),
+    Rl(Dst8),
+    Rr(Dst8),
+    Sla(Dst8),
+    Sra(Dst8),
+    Srl(Dst8),
+    Bit(u8, Dst8),
+    Res(u8, Dst8),
+    Set(u8, Dst8),
+    Swap(Dst8),
 }
 
 impl Instr {
     /// The number of machine cycles an instruction takes to execute.
-    pub fn num_cycles(instr: &Instr) -> i64 {
+    pub fn num_cycles(gb: &Gameboy, instr: &Instr) -> i64 {
         match instr {
             Instr::Nop => 1,
             Instr::Stop => 1,
             Instr::Halt => 1,
+            Instr::Di => 1,
+            Instr::Ei => 1,
+            Instr::Ccf => 1,
+            Instr::Scf => 1,
+            Instr::Daa => 1,
+            Instr::Cpl => 1,
 
             Instr::Ld(dst, src) => match (dst, src) {
                 (Dst8::R8(_), Src8::R8(_)) => 1,
@@ -199,7 +260,6 @@ impl Instr {
                 (Dst16::RSP, Src16::R16(_)) => 3,
                 _ => panic!("Invalid dst, src"),
             },
-
             Instr::Push(_) => 4,
             Instr::Pop(_) => 3,
 
@@ -217,15 +277,61 @@ impl Instr {
             Instr::Add16HL(_) => 2,
             Instr::Add16SP(_) => 4,
             Instr::Inc16(_) | Instr::Dec16(_) => 2,
+
+            Instr::Jp(src) => match src {
+                Src16::D16(_) => 4,
+                Src16::R16(RHL) => 1,
+                _ => panic!("Invalid dst, src"),
+            },
+            Instr::JpCC(cond, _) => if Cond::check(gb, cond) { 4 } else { 3 },
+            Instr::Jr(_) => 3,
+            Instr::JrCC(cond, _) => if Cond::check(gb, cond) { 3 } else { 2 },
+            Instr::Call(_) => 6,
+            Instr::CallCC(cond, _) => if Cond::check(gb, cond) { 6 } else { 3 },
+            Instr::Ret => 4,
+            Instr::RetCC(cond) => if Cond::check(gb, cond) { 5 } else { 2 },
+            Instr::Reti => 4,
+            Instr::Rst(_) => 4,
+
+            Instr::Rlca | Instr::Rla | Instr::Rrca | Instr::Rra => 1,
+            Instr::Rlc(Dst8::Id(RHL)) => 4,
+            Instr::Rlc(_) => 2,
+            Instr::Rrc(Dst8::Id(RHL)) => 4,
+            Instr::Rrc(_) => 2,
+            Instr::Rl(Dst8::Id(RHL)) => 4,
+            Instr::Rl(_) => 2,
+            Instr::Rr(Dst8::Id(RHL)) => 4,
+            Instr::Rr(_) => 2,
+            Instr::Sla(Dst8::Id(RHL)) => 4,
+            Instr::Sla(_) => 2,
+            Instr::Sra(Dst8::Id(RHL)) => 4,
+            Instr::Sra(_) => 2,
+            Instr::Srl(Dst8::Id(RHL)) => 4,
+            Instr::Srl(_) => 2,
+            Instr::Bit(_, Dst8::Id(RHL)) => 3,
+            Instr::Bit(_, _) => 2,
+            Instr::Res(_, Dst8::Id(RHL)) => 4,
+            Instr::Res(_, _) => 2,
+            Instr::Set(_, Dst8::Id(RHL)) => 4,
+            Instr::Set(_, _) => 2,
+            Instr::Swap(Dst8::Id(RHL)) => 4,
+            Instr::Swap(_) => 2,
         }
     }
 
-    /// The length, in bytes, of an instruction.
+    /// The length, in bytes, of an instruction. Used to calculate next PC value.
+    /// For jump instructions, 0 is returned as PC is directly modified by the instruction.
     pub fn size(instr: &Instr) -> u16 {
         match instr {
             Instr::Nop => 1,
             Instr::Stop => 2,
             Instr::Halt => 1,
+            Instr::Di => 1,
+            Instr::Ei => 1,
+            Instr::Ccf => 1,
+            Instr::Scf => 1,
+            Instr::Daa => 1,
+            Instr::Cpl => 1,
 
             Instr::Ld(dst, src) => match (dst, src) {
                 (Dst8::R8(_), Src8::R8(_)) => 1,
@@ -243,7 +349,6 @@ impl Instr {
                 Src16::SPD8(_) => 2,
                 _ => 3,
             },
-
             Instr::Push(_) | Instr::Pop(_) => 1,
 
             Instr::Inc(_) | Instr::Dec(_) => 1,
@@ -257,6 +362,31 @@ impl Instr {
             Instr::Add16HL(_) => 1,
             Instr::Add16SP(_) => 2,
             Instr::Inc16(_) | Instr::Dec16(_) => 1,
+
+            // PC-modifying instructions, always 0
+            Instr::Jp(_) => 0,
+            Instr::JpCC(_, _) => 0,
+            Instr::Jr(_) => 0,
+            Instr::JrCC(_, _) => 0,
+            Instr::Call(_) => 0,
+            Instr::CallCC(_, _) => 0,
+            Instr::Ret => 0,
+            Instr::RetCC(_) => 0,
+            Instr::Reti => 0,
+            Instr::Rst(_) => 0,
+
+            Instr::Rlca | Instr::Rla | Instr::Rrca | Instr::Rra => 1,
+            Instr::Rlc(_) => 2,
+            Instr::Rrc(_) => 2,
+            Instr::Rl(_) => 2,
+            Instr::Rr(_) => 2,
+            Instr::Sla(_) => 2,
+            Instr::Sra(_) => 2,
+            Instr::Srl(_) => 2,
+            Instr::Bit(_, _) => 2,
+            Instr::Res(_, _) => 2,
+            Instr::Set(_, _) => 2,
+            Instr::Swap(_) => 2,
         }
     }
 }

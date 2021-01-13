@@ -1,4 +1,6 @@
 use std::fmt;
+use std::sync::atomic::{AtomicU8};
+use std::convert::TryInto;
 
 // Registers are referred to by indexing into Gameboy.regs
 /// The type of an 8-bit register
@@ -28,23 +30,39 @@ pub const FLAG_N: u8 = 0b01000000;
 pub const FLAG_H: u8 = 0b00100000;
 pub const FLAG_C: u8 = 0b00010000;
 
+// IO register aliases
+pub const IO_IE: usize = 0xff;
+
 pub struct Gameboy {
-    pub mem: Box<[u8; 0xFFFF]>,
-    pub cycles: i64, // Counts machine cycles
+    pub mem: Box<[u8; 0xffff]>,
+    /// Elapsed machine cycles
+    pub cycles: i64, 
     pub pc: u16,
     pub sp: u16,
-    pub regs: [u8; 8], // Registers A, B, C, D, E, F, H, L
+    /// Registers A, B, C, D, E, F, H, L
+    pub regs: [u8; 8], 
+    /// Registers 0xFF00 to 0xFFFF
+    pub io_regs: [AtomicU8; 256],
+    /// Interrupt Master Enable
+    pub ime: bool,
+    pub halted: bool,
 }
 
 impl Gameboy {
     pub fn new() -> Gameboy {
-        // TODO init properly
+        let mut io_regs = vec!();
+        for _ in 0..256 {
+            io_regs.push(AtomicU8::new(0));
+        }
         Gameboy {
-            mem: Box::new([0; 0xFFFF]),
+            mem: Box::new([0; 0xffff]),
             cycles: 0,
             pc: 0x0100, 
             sp: 0xfffe,
             regs: [0; 8],
+            io_regs: io_regs.try_into().unwrap(),
+            ime: false,
+            halted: false,
         }
     }
 }

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU8, Ordering};
     use crate::gameboy::{*};
     use super::super::exec;
     use super::super::instruction::{CarryMode, Src8, Dst8, Src16, Dst16, IncDec, AddSub};
@@ -144,7 +145,7 @@ mod tests {
     #[test]
     fn ldh_ra_rc() {
         let mut gb = Gameboy::new();
-        gb.mem[0xFF03] = 0x99;
+        gb.io_regs[0x03].store(0x99, Ordering::Relaxed);
         gb.regs[RC] = 0x03;
         gb.regs[RA] = 0x05;
 
@@ -156,22 +157,22 @@ mod tests {
     #[test]
     fn ldh_rc_ra() {
         let mut gb = Gameboy::new();
-        gb.mem[0xFF03] = 0x05;
+        gb.io_regs[0x03].store(0x05, Ordering::Relaxed);
         gb.regs[RC] = 0x03;
         gb.regs[RA] = 0x99;
 
         exec::ld(&mut gb, &Dst8::IdFFRC, &Src8::R8(RA));
 
-        assert_eq!(gb.mem[0xFF03], 0x99);
+        assert_eq!(gb.io_regs[0x03].load(Ordering::Relaxed), 0x99);
     }
 
     #[test]
     fn ldh_ra_n()  {
         let mut gb = Gameboy::new();
-        gb.mem[0xFF03] = 0x99;
+        gb.io_regs[0x03].store(0x99, Ordering::Relaxed);
         gb.regs[RA] = 0x05;
 
-        exec::ld(&mut gb, &Dst8::R8(RA), &Src8::IdFF(3));
+        exec::ld(&mut gb, &Dst8::R8(RA), &Src8::IdFF(0x03));
 
         assert_eq!(gb.regs[RA], 0x99);
     }
@@ -179,12 +180,12 @@ mod tests {
     #[test]
     fn ldh_n_ra()  {
         let mut gb = Gameboy::new();
-        gb.mem[0xFF03] = 0x05;
+        gb.io_regs[0x03].store(0x05, Ordering::Relaxed);
         gb.regs[RA] = 0x99;
 
         exec::ld(&mut gb, &Dst8::IdFF(3), &Src8::R8(RA));
 
-        assert_eq!(gb.mem[0xFF03], 0x99);
+        assert_eq!(gb.io_regs[0x03].load(Ordering::Relaxed), 0x99);
     }
 
     #[test]
