@@ -1,5 +1,6 @@
 mod gameboy;
 
+//use std::{fmt::Write, num::ParseIntError};
 use std::io::{self, Write};
 use std::collections::HashMap;
 use crate::gameboy::{Gameboy, step};
@@ -35,7 +36,7 @@ fn run_test_program(gb: &mut Gameboy, program: Vec<(&str, Vec<u8>)>) {
     // Load program
     let mut addr = 0x0100;
     for (mnemonic, bytes) in program.iter() {
-        addr_to_mnemonic.insert(addr, mnemonic);
+        addr_to_mnemonic.insert(addr, *mnemonic);
         for byte in bytes.iter() {
             gb.mem[addr] = *byte;
             addr += 1;
@@ -47,15 +48,86 @@ fn run_test_program(gb: &mut Gameboy, program: Vec<(&str, Vec<u8>)>) {
     
     // Execute program
     println!("==> initial state\n{}\n", gb);
-    let mut buf = String::new();
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     while gb.pc < program_end {
         let mnemonic = addr_to_mnemonic.get(&(gb.pc as usize)).unwrap();
-        print!("==> {}", mnemonic);
-        stdout.flush().unwrap();
-        stdin.read_line(&mut buf).unwrap();
+        loop {
+            print!("==> {}\n", mnemonic);
+            stdout.flush().unwrap();
+            let mut line = String::new();
+            stdin.read_line(&mut line).unwrap();
+            let cmd = DebugCmd::new(&line);
+            match cmd {
+                Result::Ok(cmd) => {
+                    if let DebugCmd::Step = cmd {
+                        break;
+                    }
+                    DebugCmd::run(gb, &addr_to_mnemonic, &cmd)
+                },
+                Result::Err(err) => println!("{}", err),
+            }
+        }
         step(gb);
-        println!("{}\n", gb);
+    }
+}
+
+#[derive(Debug)]
+enum DebugCmd {
+    Step,
+    Registers,
+    View(usize, usize),
+}
+
+impl DebugCmd {
+    fn new(cmd: &str) -> Result<DebugCmd, &str> {
+        let cmd = cmd.trim();
+        if cmd == "" {
+            return Result::Ok(DebugCmd::Step);
+        }
+        if cmd == "r" {
+            return Result::Ok(DebugCmd::Registers);
+        }
+        if cmd.starts_with("v ") || cmd.starts_with("view ") {
+            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
+            if args.contains("+") {
+                let args: Vec<&str> = args.split("+").collect();
+                let start = parse_num(&args[0]).expect("Failed to parse start address");
+                let offset = parse_num(&args[1]).expect("Failed to parse offset");
+                return Result::Ok(DebugCmd::View(start, start + offset));
+            } else if args.contains("-") {
+                let args: Vec<&str> = args.split("-").collect();
+                let start = parse_num(&args[0]).expect("Failed to parse start address");
+                let end = parse_num(&args[1]).expect("Failed to parse end address");
+                return Result::Ok(DebugCmd::View(start, end));
+            } else {
+                let start = parse_num(&args).expect("Failed to parse start address");
+                return Result::Ok(DebugCmd::View(start, start));
+            }
+        }
+        Result::Err("Unknown command")
+    }
+
+    fn run(gb: &mut Gameboy, mnemonic: &HashMap<usize, &str>, cmd: &DebugCmd) {
+        match *cmd {
+            DebugCmd::View(start, end) => {
+                let mut addr = start;
+                while addr <= end {
+                    println!("${:0>4X}: ${:0>2X} {}", 
+                        addr, gb.mem[addr], mnemonic.get(&addr).unwrap_or(&""));
+                    addr += 1;
+                }
+            },
+            DebugCmd::Registers => println!("{}", gb),
+            _ => panic!("Invalid command {:?}", *cmd),
+        }
+    }
+}
+
+fn parse_num(string: &str) -> Option<usize> {
+    if string.starts_with("$") {
+        usize::from_str_radix(&string[1..], 16).ok()
+    } else { 
+        usize::from_str_radix(&string, 10).ok()
     }
 }

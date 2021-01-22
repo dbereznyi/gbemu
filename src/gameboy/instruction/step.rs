@@ -78,7 +78,7 @@ pub fn step(gb: &mut Gameboy) {
 }
 
 /// Decode the current instruction.
-fn decode(gb: &mut Gameboy) -> Instr {
+fn decode(gb: &Gameboy) -> Instr {
     let opcode = gb.mem[gb.pc as usize];
     // The bottom three bits of the opcode are used to indicate src reg for certain loads
     //let r_src = (opcode & 0b0000_0111) as usize;
@@ -90,7 +90,7 @@ fn decode(gb: &mut Gameboy) -> Instr {
     // Convert from little-endian, n is lsb and n2 is msb
     let nn = ((n2 as u16) << 8) | (n as u16);
     // For 0xCB instructions, n encodes a register in the bottom three bits
-    let cb_reg = reg_encoding_to_dst(n & 0b0000_01111);
+    let cb_reg = reg_encoding_to_dst(n & 0b0000_0111);
     match opcode {
         0x00        => Instr::Nop,
         0x01        => Instr::Ld16(Dst16::R16(RBC), Src16::D16(nn)),
@@ -173,13 +173,10 @@ fn decode(gb: &mut Gameboy) -> Instr {
 
         0x80..=0x87 => Instr::Add(src_reg),
         0x88..=0x8f => Instr::Adc(src_reg),
-
         0x90..=0x97 => Instr::Sub(src_reg),
         0x98..=0x9f => Instr::Sbc(src_reg),
-
         0xa0..=0xa7 => Instr::And(src_reg),
         0xa8..=0xaf => Instr::Xor(src_reg),
-
         0xb0..=0xb7 => Instr::Or(src_reg),
         0xb8..=0xbf => Instr::Cp(src_reg),
 

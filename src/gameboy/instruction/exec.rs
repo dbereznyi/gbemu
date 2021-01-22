@@ -7,8 +7,8 @@ use super::instruction::{
 const BIT_0: u8 = 0b0000_0001;
 const BIT_7: u8 = 0b1000_0000;
 
-pub fn stop(_gb: &mut Gameboy) {
-    // TODO implement
+pub fn stop(gb: &mut Gameboy) {
+    gb.stopped = true;
 }
 
 pub fn halt(gb: &mut Gameboy)  {
@@ -24,7 +24,7 @@ pub fn ei(gb: &mut Gameboy) {
     // Should probably schedule this by specifying by what cycle IME should
     // get enabled. For >2 cycle instructions, IME will be set by the time the
     // next start of the emulation loop. For 1 cycle instructions, IME will end up
-    // being enabled a cycle too early (not sure if it really matters).
+    // being enabled a cycle too early (could matter).
     gb.ime = true;
 }
 
@@ -70,7 +70,9 @@ pub fn ld_inc_dec(gb: &mut Gameboy, dst: &Dst8, src: &Src8, mode: IncDec) {
         IncDec::Inc => 1,
         IncDec::Dec => -1,
     };
-    offset_r16(gb, RHL, offset);
+    let new = (rr_to_u16(gb, RHL) as i16) + offset;
+    gb.regs[RH] = (new >> 8) as u8;
+    gb.regs[RL] = new as u8;
 }
 
 /// 16-bit load.
@@ -424,13 +426,6 @@ pub fn set(gb: &mut Gameboy, bt: u8, dst: &Dst8) {
 }
 
 // Helper functions
-
-/// Offset (i.e add or subtract) a 16-bit register by a given amount
-fn offset_r16(gb: &mut Gameboy, r16: RR, offset: i16) {
-    let new = (rr_to_u16(gb, r16) as i16) + offset;
-    gb.regs[r16.0] = (new >> 8) as u8;
-    gb.regs[r16.1] = new as u8;
-}
 
 fn compute_zero_flag(x: u8) -> u8 {
     if x == 0 {0b1000_0000} else {0}

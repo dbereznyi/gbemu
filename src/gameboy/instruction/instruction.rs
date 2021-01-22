@@ -249,15 +249,14 @@ impl Instr {
                 (Dst8::IdNN(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdNN(_)) => 4,
                 _ => panic!("Invalid dst, src"),
             },
-            Instr::LdInc(dst, _) | Instr::LdDec(dst, _) => match dst {
-                Dst8::R8(_) => 1,
-                _ => 3,
-            },
+            Instr::LdInc(_, _) | Instr::LdDec(_, _) => 2,
 
             Instr::Ld16(dst, src) => match (dst, src) {
-                (Dst16::R16(_), Src16::D16(_)) | (Dst16::RSP, Src16::D16(_)) => 3,
+                (Dst16::RSP, Src16::R16(RHL)) => 2,
+                (Dst16::RSP, Src16::D16(_)) => 3,
+                (Dst16::R16(_), Src16::D16(_)) => 3,
+                (Dst16::R16(RHL), Src16::SPD8(_)) => 3,
                 (Dst16::IdNN(_), Src16::RSP) => 5,
-                (Dst16::RSP, Src16::R16(_)) => 3,
                 _ => panic!("Invalid dst, src"),
             },
             Instr::Push(_) => 4,
@@ -337,7 +336,7 @@ impl Instr {
                 (Dst8::R8(_), Src8::R8(_)) => 1,
                 (Dst8::R8(_), Src8::D8(_)) => 2,
                 (Dst8::Id(_), Src8::R8(_)) | (Dst8::R8(_), Src8::Id(_)) => 1,
-                (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => 2,
+                (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => 1,
                 (Dst8::IdFF(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFF(_)) => 2,
                 (Dst8::Id(RHL), Src8::D8(_)) => 2,
                 (Dst8::IdNN(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdNN(_)) => 3,
@@ -346,6 +345,7 @@ impl Instr {
             Instr::LdInc(_, _) | Instr::LdDec(_, _) => 1,
 
             Instr::Ld16(_, src) => match src {
+                Src16::R16(RHL) => 1,
                 Src16::SPD8(_) => 2,
                 _ => 3,
             },

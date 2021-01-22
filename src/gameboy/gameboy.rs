@@ -46,6 +46,7 @@ pub struct Gameboy {
     /// Interrupt Master Enable
     pub ime: bool,
     pub halted: bool,
+    pub stopped: bool,
 }
 
 impl Gameboy {
@@ -63,6 +64,7 @@ impl Gameboy {
             io_regs: io_regs.try_into().unwrap(),
             ime: false,
             halted: false,
+            stopped: false,
         }
     }
 }
