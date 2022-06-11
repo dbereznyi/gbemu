@@ -4,5 +4,6 @@ mod tests;
 mod step;
 
 pub use step::step;
+pub use exec::push_pc;
 pub use instruction::Instr;
 //pub use asm::assemble;

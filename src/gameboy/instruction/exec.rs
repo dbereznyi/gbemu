@@ -47,6 +47,7 @@ pub fn scf(gb: &mut Gameboy) {
 
 pub fn daa(gb: &mut Gameboy) {
     // TODO implement
+    panic!("TODO implement DAA");
 }
 
 pub fn cpl(gb: &mut Gameboy) {
@@ -445,7 +446,7 @@ fn compute_carry_flag(x: u8, y: u8) -> u8 {
     ((sum_8_bit & 0x100) >> 4) as u8
 }
 
-fn push_pc(gb: &mut Gameboy) {
+pub fn push_pc(gb: &mut Gameboy) {
     gb.sp -= 1;
     gb.mem[gb.sp as usize] = (gb.pc >> 8) as u8;
     gb.sp -= 1;

@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::atomic::{AtomicU8};
+use std::sync::{Arc, RwLock};
 use std::convert::TryInto;
 
 // Registers are referred to by indexing into Gameboy.regs
@@ -31,40 +31,45 @@ pub const FLAG_H: u8 = 0b00100000;
 pub const FLAG_C: u8 = 0b00010000;
 
 // IO register aliases
-pub const IO_IE: usize = 0xff;
+pub const IO_IF: usize = 0xff0f;
+pub const IO_IE: usize = 0xffff;
+
+// Interrupt flags (used for IF and IE registers)
+pub const VBLANK: u8 = 0b0000_0001;
+pub const LCDC: u8   = 0b0000_0010;
+pub const TIMER: u8  = 0b0000_0100;
+pub const H2L: u8    = 0b0000_1000;
 
 pub struct Gameboy {
     pub mem: Box<[u8; 0xffff]>,
     /// Elapsed machine cycles
-    pub cycles: i64, 
+    pub cycles: u64, 
     pub pc: u16,
     pub sp: u16,
     /// Registers A, B, C, D, E, F, H, L
     pub regs: [u8; 8], 
-    /// Registers 0xFF00 to 0xFFFF
-    pub io_regs: [AtomicU8; 256],
     /// Interrupt Master Enable
     pub ime: bool,
     pub halted: bool,
     pub stopped: bool,
+
+    /// Holds pixel data meant to be drawn to the screen
+    pub pixels: Arc<RwLock<[[u8; 144]; 160]>>,
 }
 
 impl Gameboy {
     pub fn new() -> Gameboy {
-        let mut io_regs = vec!();
-        for _ in 0..256 {
-            io_regs.push(AtomicU8::new(0));
-        }
         Gameboy {
             mem: Box::new([0; 0xffff]),
             cycles: 0,
             pc: 0x0100, 
             sp: 0xfffe,
             regs: [0; 8],
-            io_regs: io_regs.try_into().unwrap(),
             ime: false,
             halted: false,
             stopped: false,
+
+            pixels: Arc::new(RwLock::new([[0; 144]; 160])),
         }
     }
 }

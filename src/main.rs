@@ -1,11 +1,21 @@
 mod gameboy;
 
-//use std::{fmt::Write, num::ParseIntError};
+extern crate timer;
+extern crate chrono;
+extern crate sdl2;
+
+use std::thread;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, Duration};
 use std::io::{self, Write};
 use std::collections::HashMap;
-use crate::gameboy::{Gameboy, step};
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::rect::Rect;
+use crate::gameboy::{*};
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), String> {
     let mut gb = Gameboy::new();
     
     let program = vec!(
@@ -26,7 +36,96 @@ fn main() -> std::io::Result<()> {
         ("RLA", vec!(0x17)),
     );
 
-    run_test_program(&mut gb, program);
+    // run_test_program(&mut gb, program);
+
+    run_gameboy(&mut gb)?;
+
+    Ok(())
+}
+
+fn run_gameboy(gb: &mut Gameboy) -> Result<(), String> {
+    //let cpu_thread = thread::spawn(move || { });
+    //let ppu_thread = thread::spawn(move || { });
+
+    // SDL code
+
+    const SCALE: u32 = 4;
+
+    let sdl_context = sdl2::init()?;
+    let video_subsystem = sdl_context.video()?;
+    let window = video_subsystem
+        .window("gameboy emulator", 160 * SCALE, 144 * SCALE)
+        .position_centered()
+        .opengl()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut canvas = window
+        .into_canvas()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let texture_creator = canvas.texture_creator();
+    
+    let mut texture = texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGB24, 160, 144)
+        .map_err(|e| e.to_string())?;
+
+    let mut color: u32 = 0;
+
+    // An initial test texture
+    texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+        for y in 0..144 {
+            for x in 0..160 {
+                let offset = y*pitch + x*3;
+
+                buffer[offset] = color as u8;
+                buffer[offset + 1] = color as u8;
+                buffer[offset + 2] = color as u8;
+
+                color += 64;
+                color %= 256;
+            }
+            color += 64;
+            color %= 256;
+        }
+    })?;
+
+    canvas.clear();
+    canvas.copy(&texture, None, None)?;
+    canvas.present();
+
+    let mut event_pump = sdl_context.event_pump()?;
+
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                _ => {}
+            }
+        }
+
+        texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+            let pixels = gb.pixels.read().unwrap();
+
+            for y in 0..144 {
+                for x in 0..160 {
+                    let offset = y*pitch + x*3;
+
+                    buffer[offset] = pixels[x][y];
+                    buffer[offset + 1] = pixels[x][y];
+                    buffer[offset + 2] = pixels[x][y];
+                }
+            }
+        })?;
+        canvas.copy(&texture, None, None)?;
+        canvas.present();
+        thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+    }
+
     Ok(())
 }
 
@@ -53,7 +152,8 @@ fn run_test_program(gb: &mut Gameboy, program: Vec<(&str, Vec<u8>)>) {
     while gb.pc < program_end {
         let mnemonic = addr_to_mnemonic.get(&(gb.pc as usize)).unwrap();
         loop {
-            print!("==> {}\n", mnemonic);
+            print!("BREAK **** {}\n", mnemonic);
+            print!("> ");
             stdout.flush().unwrap();
             let mut line = String::new();
             stdin.read_line(&mut line).unwrap();
