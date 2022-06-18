@@ -91,16 +91,16 @@ pub fn ld_16(gb: &mut Gameboy, dst: &Dst16, src: &Src16) {
 /// Push to stack memory, data from 16-bit register.
 pub fn push(gb: &mut Gameboy, r_pair: &RR) {
     gb.sp -= 1;
-    gb.mem[gb.sp as usize] = gb.regs[r_pair.0];
+    gb.write(gb.sp, gb.regs[r_pair.0]);
     gb.sp -= 1;
-    gb.mem[gb.sp as usize] = gb.regs[r_pair.1];
+    gb.write(gb.sp, gb.regs[r_pair.1]);
 }
 
 /// Pop to 16-bit register, data from stack memory.
 pub fn pop(gb: &mut Gameboy, r_pair: &RR) {
-    gb.regs[r_pair.1] = gb.mem[gb.sp as usize];
+    gb.regs[r_pair.1] = gb.read(gb.sp);
     gb.sp += 1;
-    gb.regs[r_pair.0] = gb.mem[gb.sp as usize];
+    gb.regs[r_pair.0] = gb.read(gb.sp);
     gb.sp += 1;
 }
 
@@ -448,15 +448,15 @@ fn compute_carry_flag(x: u8, y: u8) -> u8 {
 
 pub fn push_pc(gb: &mut Gameboy) {
     gb.sp -= 1;
-    gb.mem[gb.sp as usize] = (gb.pc >> 8) as u8;
+    gb.write(gb.sp, (gb.pc >> 8) as u8);
     gb.sp -= 1;
-    gb.mem[gb.sp as usize] = gb.pc as u8;
+    gb.write(gb.sp, gb.pc as u8);
 }
 
 fn pop_pc(gb: &mut Gameboy) {
-    let lsb = gb.mem[gb.sp as usize];
+    let lsb = gb.read(gb.sp);
     gb.sp += 1;
-    let msb = gb.mem[gb.sp as usize];
+    let msb = gb.read(gb.sp);
     gb.sp += 1;
     gb.pc = ((msb as u16) << 8) | (lsb as u16);
 }

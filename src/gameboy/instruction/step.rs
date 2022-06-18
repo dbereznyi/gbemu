@@ -79,14 +79,14 @@ pub fn step(gb: &mut Gameboy) {
 
 /// Decode the current instruction.
 fn decode(gb: &Gameboy) -> Instr {
-    let opcode = gb.mem[gb.pc as usize];
+    let opcode = gb.read(gb.pc);
     // The bottom three bits of the opcode are used to indicate src reg for certain loads
     //let r_src = (opcode & 0b0000_0111) as usize;
     let src_reg = reg_encoding_to_src(opcode & 0b0000_0111);
     // Grab data from PC+1 and PC+2 in case we need them as arguments
     // This shouldn't go out of bounds since instructions aren't executed in top of mem
-    let n = gb.mem[(gb.pc + 1) as usize];
-    let n2 = gb.mem[(gb.pc + 2) as usize];
+    let n = gb.read(gb.pc + 1);
+    let n2 = gb.read(gb.pc + 2);
     // Convert from little-endian, n is lsb and n2 is msb
     let nn = ((n2 as u16) << 8) | (n as u16);
     // For 0xCB instructions, n encodes a register in the bottom three bits

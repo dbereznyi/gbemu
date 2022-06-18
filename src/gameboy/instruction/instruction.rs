@@ -1,5 +1,4 @@
 use std::num::Wrapping;
-use std::sync::atomic::{Ordering};
 use super::super::gameboy::{*};
 
 pub enum CarryMode {
@@ -27,11 +26,10 @@ impl Src8 {
     pub fn get_value(gb: &Gameboy, src: &Src8) -> u8 {
         match *src {
             Src8::R8(r) => gb.regs[r],
-            Src8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
-            Src8::IdFFRC => gb.mem[0xff00 | gb.regs[RC] as usize],
-            Src8::IdFF(n) => gb.mem[0xff00 | n as usize],
-            // TODO handle special memory areas?
-            Src8::IdNN(nn) => gb.mem[nn as usize],
+            Src8::Id(rr) => gb.read(rr_to_u16(gb, rr)),
+            Src8::IdFFRC => gb.read(0xff00 | (gb.regs[RC] as u16)),
+            Src8::IdFF(n) => gb.read(0xff00 | (n as u16)),
+            Src8::IdNN(nn) => gb.read(nn),
             Src8::D8(n) => n,
         }
     }
@@ -55,22 +53,20 @@ impl Dst8 {
     pub fn get_value(gb: &Gameboy, dst: &Dst8) -> u8 {
         match *dst {
             Dst8::R8(r) => gb.regs[r],
-            Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize],
-            Dst8::IdFFRC => gb.mem[0xff00 | gb.regs[RC] as usize],
-            Dst8::IdFF(n) => gb.mem[0xff00 | n as usize],
-            // TODO handle special memory areas?
-            Dst8::IdNN(nn) => gb.mem[nn as usize],
+            Dst8::Id(rr) => gb.read(rr_to_u16(gb, rr)),
+            Dst8::IdFFRC => gb.read(0xff00 | (gb.regs[RC] as u16)),
+            Dst8::IdFF(n) => gb.read(0xff00 | (n as u16)),
+            Dst8::IdNN(nn) => gb.read(nn),
         }
     }
 
     pub fn set_value(gb: &mut Gameboy, dst: &Dst8, value: u8) {
         match *dst {
             Dst8::R8(r) => gb.regs[r] = value,
-            Dst8::Id(rr) => gb.mem[rr_to_u16(gb, rr) as usize] = value,
-            Dst8::IdFFRC => gb.mem[0xff00 | gb.regs[RC] as usize] = value,
-            Dst8::IdFF(n) => gb.mem[0xff00 | n as usize] = value,
-            // TODO handle special memory areas?
-            Dst8::IdNN(nn) => gb.mem[nn as usize] = value,
+            Dst8::Id(rr) => gb.write(rr_to_u16(gb, rr), value),
+            Dst8::IdFFRC => gb.write(0xff00 | (gb.regs[RC] as u16), value),
+            Dst8::IdFF(n) => gb.write(0xff00 | (n as u16), value),
+            Dst8::IdNN(nn) => gb.write(nn, value),
         }
     }
 }
@@ -111,8 +107,11 @@ impl Dst16 {
         match *dst {
             Dst16::R16(rr) => rr_to_u16(gb, rr),
             Dst16::RSP => gb.sp,
-            Dst16::IdNN(nn) => 
-                ((gb.mem[nn as usize] as u16) << 8) | (gb.mem[(nn + 1) as usize] as u16),
+            Dst16::IdNN(nn) => {
+                let high = (gb.read(nn) as u16) << 8;
+                let low = gb.read(nn + 1) as u16;
+                high | low
+            },
         }
     }
 
@@ -124,8 +123,8 @@ impl Dst16 {
             },
             Dst16::RSP => gb.sp = value,
             Dst16::IdNN(nn) => {
-                gb.mem[nn as usize] = (gb.sp >> 8) as u8;
-                gb.mem[(nn + 1) as usize] = gb.sp as u8;
+                gb.write(nn, (gb.sp >> 8) as u8);
+                gb.write(nn + 1, gb.sp as u8);
             },
         }
     }

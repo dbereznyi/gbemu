@@ -77,13 +77,13 @@ fn dec_r8_underflow() {
 fn inc_id_hl() {
     let mut gb = Gameboy::new();
     load_instr(&mut gb, vec!(0x34));
-    gb.mem[0x1234] = 0x05;
-    gb.regs[RH] = 0x12;
+    gb.write(0xc234, 0x05);
+    gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
     step(&mut gb);
 
-    assert_eq!(gb.mem[0x1234], 0x06);
+    assert_eq!(gb.read(0xc234), 0x06);
     assert_eq!(gb.regs[RF], 0);
     assert_eq!(gb.cycles, 3);
     assert_eq!(gb.pc, 0x0101);
@@ -93,13 +93,13 @@ fn inc_id_hl() {
 fn inc_id_hl_overflow() {
     let mut gb = Gameboy::new();
     load_instr(&mut gb, vec!(0x34));
-    gb.mem[0x1234] = 0xff;
-    gb.regs[RH] = 0x12;
+    gb.write(0xc234, 0xff);
+    gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
     step(&mut gb);
 
-    assert_eq!(gb.mem[0x1234], 0x00);
+    assert_eq!(gb.read(0xc234), 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_H);
     assert_eq!(gb.cycles, 3);
     assert_eq!(gb.pc, 0x0101);
@@ -109,13 +109,13 @@ fn inc_id_hl_overflow() {
 fn dec_id_hl() {
     let mut gb = Gameboy::new();
     load_instr(&mut gb, vec!(0x35));
-    gb.mem[0x1234] = 0x05;
-    gb.regs[RH] = 0x12;
+    gb.write(0xc234, 0x05);
+    gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
     step(&mut gb);
 
-    assert_eq!(gb.mem[0x1234], 0x04);
+    assert_eq!(gb.read(0xc234), 0x04);
     assert_eq!(gb.regs[RF], FLAG_N | FLAG_H);
     assert_eq!(gb.cycles, 3);
     assert_eq!(gb.pc, 0x0101);
@@ -125,13 +125,13 @@ fn dec_id_hl() {
 fn dec_id_hl_z() {
     let mut gb = Gameboy::new();
     load_instr(&mut gb, vec!(0x35));
-    gb.mem[0x1234] = 0x01;
-    gb.regs[RH] = 0x12;
+    gb.write(0xc234, 0x01);
+    gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
     step(&mut gb);
 
-    assert_eq!(gb.mem[0x1234], 0x00);
+    assert_eq!(gb.read(0xc234), 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_N | FLAG_H);
     assert_eq!(gb.cycles, 3);
     assert_eq!(gb.pc, 0x0101);
@@ -141,13 +141,13 @@ fn dec_id_hl_z() {
 fn dec_id_hl_underflow() {
     let mut gb = Gameboy::new();
     load_instr(&mut gb, vec!(0x35));
-    gb.mem[0x1234] = 0x00;
-    gb.regs[RH] = 0x12;
+    gb.write(0xc234, 0x00);
+    gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
     step(&mut gb);
 
-    assert_eq!(gb.mem[0x1234], 0xFF);
+    assert_eq!(gb.read(0xc234), 0xFF);
     assert_eq!(gb.regs[RF], FLAG_N);
     assert_eq!(gb.cycles, 3);
     assert_eq!(gb.pc, 0x0101);
