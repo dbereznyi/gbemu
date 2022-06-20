@@ -25,7 +25,7 @@ fn run_gameboy() -> Result<(), String> {
     {
         let mut io_ports = gb.io_ports.lock().unwrap();
         io_ports[IO_LCDC] = 
-            LCDC_ON | LCDC_TILE_DATA | LCDC_BG_TILE_MAP | LCDC_OBJ_DISP | LCDC_BG_WIN_DISP; 
+            LCDC_ON | LCDC_TILE_DATA | LCDC_BG_TILE_MAP | LCDC_OBJ_DISP | LCDC_BG_DISP; 
         io_ports[IO_BGP] = 0b1110_0100;
 
         // init VRAM with some test data

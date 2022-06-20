@@ -55,26 +55,30 @@ pub fn run_ppu(ppu: &mut Ppu) {
             // Draw pixels to the screen
             let mut screen = ppu.screen.lock().unwrap();
             for x in 0..160 {
-                // figure out which tile we are drawing 
-                let scrolled_x = (Wrapping(x as u8) + Wrapping(scx as u8)).0;
-                let scrolled_y = (Wrapping(y as u8) + Wrapping(scy as u8)).0;
-                let current_tile_ix = (scrolled_y as usize / 8)*32 + (scrolled_x as usize / 8);
-                // grab data for current tile row
-                let tile_data_ix = bg_tile_map[current_tile_ix] as usize;
-                let row_ix = (scrolled_y % 8) as usize;
-                let col_ix = (scrolled_x % 8) as usize;
-                let row_start = (tile_data_ix * 16) + (row_ix * 2);
-                let row = &bg_tile_data[row_start..row_start+2];
-                // determine palette index from high and low bytes
-                let col_mask = 1 << (7 - col_ix);
-                let high_bit = (row[1] & col_mask) >> (7 - col_ix);
-                let low_bit = (row[0] & col_mask) >> (7 - col_ix);
-                let palette_ix = 2*high_bit + low_bit;
-                // finally, determine pixel color using BGP register lookup
-                const PALETTE: [u8; 4] = [255, 127, 63, 0];
-                let bgp_mask = 0b11 << (palette_ix * 2);
-                let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
-                screen[y][x] = PALETTE[bgp_palette_ix as usize];
+                if (lcdc & LCDC_BG_DISP) > 0 {  
+                    // figure out which tile we are drawing 
+                    let scrolled_x = (Wrapping(x as u8) + Wrapping(scx as u8)).0;
+                    let scrolled_y = (Wrapping(y as u8) + Wrapping(scy as u8)).0;
+                    let current_tile_ix = (scrolled_y as usize / 8)*32 + (scrolled_x as usize / 8);
+                    // grab data for current tile row
+                    let tile_data_ix = bg_tile_map[current_tile_ix] as usize;
+                    let row_ix = (scrolled_y % 8) as usize;
+                    let col_ix = (scrolled_x % 8) as usize;
+                    let row_start = (tile_data_ix * 16) + (row_ix * 2);
+                    let row = &bg_tile_data[row_start..row_start+2];
+                    // determine palette index from high and low bytes
+                    let col_mask = 1 << (7 - col_ix);
+                    let high_bit = (row[1] & col_mask) >> (7 - col_ix);
+                    let low_bit = (row[0] & col_mask) >> (7 - col_ix);
+                    let palette_ix = 2*high_bit + low_bit;
+                    // finally, determine pixel color using BGP register lookup
+                    const PALETTE: [u8; 4] = [255, 127, 63, 0];
+                    let bgp_mask = 0b11 << (palette_ix * 2);
+                    let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
+                    screen[y][x] = PALETTE[bgp_palette_ix as usize];
+                } else {
+                    screen[y][x] = 255;
+                }
 
                 // TODO do similar stuff for sprite and window layers
             }

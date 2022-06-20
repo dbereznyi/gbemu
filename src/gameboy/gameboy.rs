@@ -51,7 +51,7 @@ pub const LCDC_TILE_DATA: u8    = 0b0001_0000;
 pub const LCDC_BG_TILE_MAP: u8  = 0b0000_1000;
 pub const LCDC_OBJ_SIZE: u8     = 0b0000_0100;
 pub const LCDC_OBJ_DISP: u8     = 0b0000_0010;
-pub const LCDC_BG_WIN_DISP: u8  = 0b0000_0001;
+pub const LCDC_BG_DISP: u8      = 0b0000_0001;
 
 // STAT settings
 pub const STAT_INT_LYC: u8 = 0b0100_0000;
