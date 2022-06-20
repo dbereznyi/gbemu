@@ -1,6 +1,6 @@
 use std::fmt;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, Condvar};
+use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
 
 // Registers are referred to by indexing into Gameboy.regs
 /// The type of an 8-bit register
@@ -36,6 +36,9 @@ pub const IO_LCDC: usize = 0x40;
 pub const IO_STAT: usize = 0x41;
 pub const IO_SCY: usize  = 0x42; 
 pub const IO_SCX: usize  = 0x43; 
+pub const IO_LY: usize   = 0x44;
+pub const IO_LYC: usize  = 0x45;
+pub const IO_BGP: usize  = 0x47;
 
 // LCDC settings
 pub const LCDC_ON: u8           = 0b1000_0000;
@@ -62,10 +65,11 @@ pub const STAT_MODE_OAM: u8      = 0b0000_0010;
 pub const STAT_MODE_TRANSFER: u8 = 0b0000_0011;
 
 // Interrupt flags (used for IF and IE registers)
-pub const VBLANK: u8 = 0b0000_0001;
-pub const LCDC: u8   = 0b0000_0010;
-pub const TIMER: u8  = 0b0000_0100;
-pub const H2L: u8    = 0b0000_1000;
+pub const VBLANK: u8    = 0b0000_0001;
+pub const LCDC: u8      = 0b0000_0010;
+pub const TIMER: u8     = 0b0000_0100;
+pub const SERIAL: u8    = 0b0000_1000;
+pub const HI_TO_LOW: u8 = 0b0001_0000;
 
 pub struct Gameboy {
     /// Working RAM, accessible by CPU only
@@ -90,9 +94,12 @@ pub struct Gameboy {
     /// Registers A, B, C, D, E, F, H, L
     pub regs: [u8; 8], 
     /// Interrupt Master Enable
-    pub ime: bool,
-    pub halted: bool,
-    pub stopped: bool,
+    pub ime: Arc<AtomicBool>,
+    pub halted: Arc<AtomicBool>,
+    pub stopped: Arc<AtomicBool>,
+
+    /// CPU can wait on this variable to sleep until interrupted
+    pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
 
     /// Holds pixel data to be drawn to the screen
     pub screen: Arc<Mutex<[[u8; 160]; 144]>>,
@@ -114,9 +121,11 @@ impl Gameboy {
             pc: 0x0100, 
             sp: 0xfffe,
             regs: [0; 8],
-            ime: false,
-            halted: false,
-            stopped: false,
+            ime: Arc::new(AtomicBool::new(false)),
+            halted: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::new(AtomicBool::new(false)),
+
+            interrupt_received: Arc::new((Mutex::new(false), Condvar::new())),
 
             screen: Arc::new(Mutex::new([[0; 160]; 144])),
         }

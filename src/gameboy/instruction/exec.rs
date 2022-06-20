@@ -1,4 +1,5 @@
 use std::num::Wrapping;
+use std::sync::atomic::{Ordering};
 use super::super::gameboy::{*};
 use super::instruction::{
     CarryMode, Src8, Dst8, Src16, Dst16, BitwiseOp, IncDec, AddSub, Cond
@@ -8,15 +9,18 @@ const BIT_0: u8 = 0b0000_0001;
 const BIT_7: u8 = 0b1000_0000;
 
 pub fn stop(gb: &mut Gameboy) {
-    gb.stopped = true;
+    gb.stopped.store(true, Ordering::Relaxed);
 }
 
 pub fn halt(gb: &mut Gameboy)  {
-    gb.halted = true;
+    if gb.ime.load(Ordering::Relaxed) {
+        gb.halted.store(true, Ordering::Relaxed);
+    }
+    // TODO handle instruction-skipping behavior
 }
 
 pub fn di(gb: &mut Gameboy) {
-    gb.ime = false;
+    gb.ime.store(false, Ordering::Relaxed);
 }
 
 pub fn ei(gb: &mut Gameboy) {
@@ -25,7 +29,7 @@ pub fn ei(gb: &mut Gameboy) {
     // get enabled. For >2 cycle instructions, IME will be set by the time the
     // next start of the emulation loop. For 1 cycle instructions, IME will end up
     // being enabled a cycle too early (could matter).
-    gb.ime = true;
+    gb.ime.store(true, Ordering::Relaxed);
 }
 
 pub fn ccf(gb: &mut Gameboy) {
@@ -239,7 +243,7 @@ pub fn ret_cond(gb: &mut Gameboy, cond: &Cond) {
 
 pub fn reti(gb: &mut Gameboy) {
     pop_pc(gb);
-    gb.ime = true;
+    gb.ime.store(true, Ordering::Relaxed);
 }
 
 pub fn rst(gb: &mut Gameboy, addr: u8) {
