@@ -63,7 +63,6 @@ fn run_gameboy() -> Result<(), String> {
         vram: gb.vram.clone(),
         oam: gb.oam.clone(),
         io_ports: gb.io_ports.clone(),
-        io_ie: gb.io_ie.clone(),
         screen: gb.screen.clone(),
         ime: gb.ime.clone(),
         interrupt_received: Arc::clone(&gb.interrupt_received),

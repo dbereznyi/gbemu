@@ -9,8 +9,7 @@ use crate::gameboy::{*};
 pub struct Ppu {
     pub vram: Arc<Mutex<[u8; 0x2000]>>, 
     pub oam: Arc<Mutex<[u8; 0xa0]>>, 
-    pub io_ports: Arc<Mutex<[u8; 0x4c]>>,
-    pub io_ie: Arc<AtomicU8>,
+    pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
     pub screen: Arc<Mutex<[[u8; 160]; 144]>>,
     pub ime: Arc<AtomicBool>,
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
@@ -96,7 +95,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
         let mut io_ports = ppu.io_ports.lock().unwrap();
         io_ports[IO_STAT] &= !STAT_MODE;
         io_ports[IO_STAT] |= STAT_MODE_VBLANK;
-        if ppu.ime.load(Ordering::Relaxed) && (ppu.io_ie.load(Ordering::Relaxed) & VBLANK) > 0 {
+        if ppu.ime.load(Ordering::Relaxed) && (io_ports[IO_IE] & VBLANK) > 0 {
             io_ports[IO_IF] |= VBLANK;
             let mut interrupted = mutex.lock().unwrap();
             *interrupted = true;

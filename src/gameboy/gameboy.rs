@@ -39,6 +39,9 @@ pub const IO_SCX: usize  = 0x43;
 pub const IO_LY: usize   = 0x44;
 pub const IO_LYC: usize  = 0x45;
 pub const IO_BGP: usize  = 0x47;
+// In the memory map this is at 0xffff, but to simplify things internally we store this at the end
+// of the io_ports array
+pub const IO_IE: usize   = 0x4c;
 
 // LCDC settings
 pub const LCDC_ON: u8           = 0b1000_0000;
@@ -79,11 +82,9 @@ pub struct Gameboy {
     /// Object (sprite) Attribute Memory, used by PPU and can be written to via DMA transfer
     pub oam: Arc<Mutex<[u8; 0xa0]>>,
     /// IO Ports and hardware control registers
-    pub io_ports: Arc<Mutex<[u8; 0x4c]>>,
+    pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
     /// Internal RAM, used e.g. for stack
     pub iram: Box<[u8; 0x7f]>,
-    /// Interrupt Enable IO register
-    pub io_ie: Arc<AtomicU8>,
     /// 32kB ROM. Mapping into memory depends on ROM type
     pub rom: Box<[u8; 0x8000]>,
 
@@ -112,9 +113,8 @@ impl Gameboy {
             wram: Box::new([0; 0x2000]),
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
-            io_ports: Arc::new(Mutex::new([0; 0x4c])),
+            io_ports: Arc::new(Mutex::new([0; 0x4d])),
             iram: Box::new([0; 0x7f]),
-            io_ie: Arc::new(AtomicU8::new(0)),
             rom: Box::new([0; 0x8000]),
 
             cycles: 0,
@@ -169,7 +169,8 @@ impl Gameboy {
                 self.iram[(addr - 0xff80) as usize]
             },
             0xffff => {
-                self.io_ie.load(Ordering::Relaxed)
+                let io_ports = self.io_ports.lock().unwrap();
+                io_ports[IO_IE]
             },
         }
     }
@@ -212,7 +213,8 @@ impl Gameboy {
                 self.iram[(addr - 0xff80) as usize] = value
             },
             0xffff => {
-                self.io_ie.store(value, Ordering::Relaxed)
+                let mut io_ports = self.io_ports.lock().unwrap();
+                io_ports[IO_IE] = value
             },
         }
     }
