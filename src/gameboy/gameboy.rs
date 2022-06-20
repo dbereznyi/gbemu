@@ -39,6 +39,8 @@ pub const IO_SCX: usize  = 0x43;
 pub const IO_LY: usize   = 0x44;
 pub const IO_LYC: usize  = 0x45;
 pub const IO_BGP: usize  = 0x47;
+pub const IO_WY: usize   = 0x4a;
+pub const IO_WX: usize   = 0x4b;
 // In the memory map this is at 0xffff, but to simplify things internally we store this at the end
 // of the io_ports array
 pub const IO_IE: usize   = 0x4c;

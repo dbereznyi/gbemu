@@ -25,13 +25,16 @@ fn run_gameboy() -> Result<(), String> {
     {
         let mut io_ports = gb.io_ports.lock().unwrap();
         io_ports[IO_LCDC] = 
-            LCDC_ON | LCDC_TILE_DATA | LCDC_BG_TILE_MAP | LCDC_OBJ_DISP | LCDC_BG_DISP; 
+            LCDC_ON | LCDC_WIN_DISP | LCDC_TILE_DATA | LCDC_BG_TILE_MAP | LCDC_OBJ_DISP | LCDC_BG_DISP; 
         io_ports[IO_BGP] = 0b1110_0100;
+        io_ports[IO_WX] = 7;
+        io_ports[IO_WY] = 136;
 
         // init VRAM with some test data
 
         let mut vram = gb.vram.lock().unwrap();
         let tile_bytes = vec!(
+            // tile #0 - capital letter 'A' with some shading
             0x7c, 0x7c, 
             0x00, 0xc6, 
             0xc6, 0x00, 
@@ -39,18 +42,37 @@ fn run_gameboy() -> Result<(), String> {
             0xc6, 0xc6, 
             0x00, 0xc6, 
             0xc6, 0x00,
-            0x00, 0x00);
+            0x00, 0x00,
+            // tile #1 - a dark-grey square with a 1px black border
+            0xff, 0xff,
+            0x81, 0xff,
+            0x81, 0xff,
+            0x81, 0xff,
+            0x81, 0xff,
+            0x81, 0xff,
+            0x81, 0xff,
+            0xff, 0xff,
+        );
         for (i, byte) in tile_bytes.iter().enumerate() {
             vram[i] = *byte;
         }
 
-        // Just repeat tile #0
-        let mut tile_map_bytes = vec!();
+        let bg_tile_map_start = 
+            if io_ports[IO_LCDC] & LCDC_BG_TILE_MAP > 0 {
+                0x1c00
+            } else {
+                0x1800
+            };
+        let win_tile_map_start =
+            if io_ports[IO_LCDC] & LCDC_WIN_TILE_MAP > 0 {
+                0x1c00
+            } else {
+                0x1800
+            };
+
         for i in 0..32*32 {
-            tile_map_bytes.push(0);
-        }
-        for (i, byte) in tile_map_bytes.iter().enumerate() {
-            vram[0x1c00 + i] = *byte;
+            vram[bg_tile_map_start + i] = 0;
+            vram[win_tile_map_start + i] = 1;
         }
 
         gb.halted.store(true, Ordering::Relaxed);
