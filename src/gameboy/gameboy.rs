@@ -1,8 +1,10 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool};
 
-// Registers are referred to by indexing into Gameboy.regs
+use crate::gameboy::cartridge::{*};
+
+// Registers are accessed by indexing into Gameboy.regs
 /// The type of an 8-bit register
 pub type R = usize;
 /// The type of a 16-bit register, i.e. a pair of 8-bit registers used together
@@ -39,6 +41,8 @@ pub const IO_SCX: usize  = 0x43;
 pub const IO_LY: usize   = 0x44;
 pub const IO_LYC: usize  = 0x45;
 pub const IO_BGP: usize  = 0x47;
+pub const IO_OBP0: usize = 0x48;
+pub const IO_OBP1: usize = 0x49;
 pub const IO_WY: usize   = 0x4a;
 pub const IO_WX: usize   = 0x4b;
 // In the memory map this is at 0xffff, but to simplify things internally we store this at the end
@@ -77,47 +81,46 @@ pub const SERIAL: u8    = 0b0000_1000;
 pub const HI_TO_LOW: u8 = 0b0001_0000;
 
 pub struct Gameboy {
-    /// Working RAM, accessible by CPU only
-    pub wram: Box<[u8; 0x2000]>,
-    /// Video RAM, accessible by CPU and PPU (but not at same time)
+    /// Working RAM, accessible by CPU only.
+    wram: Box<[u8; 0x2000]>,
+    /// Video RAM, accessible by CPU and PPU (but not at the same time).
     pub vram: Arc<Mutex<[u8; 0x2000]>>,
-    /// Object (sprite) Attribute Memory, used by PPU and can be written to via DMA transfer
+    /// Object (sprite) Attribute Memory, used by PPU and can be written to via DMA transfer.
     pub oam: Arc<Mutex<[u8; 0xa0]>>,
-    /// IO Ports and hardware control registers
+    /// IO Ports and hardware control registers.
     pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
-    /// Internal RAM, used e.g. for stack
-    pub iram: Box<[u8; 0x7f]>,
-    /// 32kB ROM. Mapping into memory depends on ROM type
-    pub rom: Box<[u8; 0x8000]>,
+    /// Internal RAM, used e.g. for stack.
+    iram: Box<[u8; 0x7f]>,
+    /// The currently-loaded cartridge.
+    cartridge: Cartridge,
 
-    /// Elapsed machine cycles
+    /// Elapsed machine cycles.
     pub cycles: u64, 
     pub pc: u16,
     pub sp: u16,
-    /// Registers A, B, C, D, E, F, H, L
+    /// Registers A, B, C, D, E, F, H, L.
     pub regs: [u8; 8], 
-    /// Interrupt Master Enable
+    /// Interrupt Master Enable.
     pub ime: Arc<AtomicBool>,
     pub halted: Arc<AtomicBool>,
     pub stopped: Arc<AtomicBool>,
 
-    /// CPU can wait on this variable to sleep until interrupted
+    /// CPU can wait on this variable to sleep until interrupted.
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
 
-    /// Holds pixel data to be drawn to the screen
+    /// Holds pixel data to be drawn to the screen.
     pub screen: Arc<Mutex<[[u8; 160]; 144]>>,
 }
 
 impl Gameboy {
-    /// Creates a new Gameboy struct.
-    pub fn new() -> Gameboy {
+    pub fn new(cartridge: Cartridge) -> Gameboy {
         Gameboy {
             wram: Box::new([0; 0x2000]),
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
             io_ports: Arc::new(Mutex::new([0; 0x4d])),
             iram: Box::new([0; 0x7f]),
-            rom: Box::new([0; 0x8000]),
+            cartridge: cartridge,
 
             cycles: 0,
             pc: 0x0100, 
@@ -133,19 +136,18 @@ impl Gameboy {
         }
     }
 
-    /// Reads a byte from the specified address.
+    /// Reads a byte from the specified address according to the memory map.
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7fff => {
-                // TODO handle different ROM types. for now just treat it as simple 32kB ROM
-                self.rom[addr as usize]
+                self.cartridge.read_rom(addr)
             },
             0x8000..=0x9fff => {
                 let vram = self.vram.lock().unwrap();
                 vram[(addr - 0x8000) as usize]
             },
             0xa000..=0xbfff => {
-                panic!("TODO handle switchable RAM bank")
+                self.cartridge.read_ram(addr)
             },
             0xc000..=0xdfff => {
                 self.wram[(addr - 0xc000) as usize] 
@@ -177,19 +179,18 @@ impl Gameboy {
         }
     }
 
-    /// Writes a byte to the specified address.
+    /// Writes a byte to the specified address according to the memory map.
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x7fff => {
-                // TODO handle different ROM types. for now just treat it as simple 32kB ROM
-                panic!("Error: attempt to write to ROM")
+                self.cartridge.write_rom(addr, value)
             },
             0x8000..=0x9fff => {
                 let mut vram = self.vram.lock().unwrap();
                 vram[(addr - 0x8000) as usize] = value
             },
             0xa000..=0xbfff => {
-                panic!("TODO handle switchable RAM bank")
+                self.cartridge.write_ram(addr, value)
             },
             0xc000..=0xdfff => {
                 self.wram[(addr - 0xc000) as usize] = value
@@ -220,15 +221,8 @@ impl Gameboy {
             },
         }
     }
-
-    pub fn load_rom(&mut self, rom: &[u8; 0x8000]) {
-        for i in 0..0x8000 {
-            self.rom[i] = rom[i];
-        }
-    }
 }
 
-// TODO probably should move this somewhere, or make it a plain function
 impl fmt::Display for Gameboy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -248,7 +242,7 @@ impl fmt::Display for Gameboy {
     }
 }
 
-/// Convert a register pair alias into a u16
+/// Converts a register pair alias into a u16.
 pub fn rr_to_u16(gb: &Gameboy, reg_pair: RR) -> u16 {
     let upper = (gb.regs[reg_pair.0] as u16) << 8;
     let lower = gb.regs[reg_pair.1] as u16;

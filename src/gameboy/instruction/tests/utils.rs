@@ -1,9 +1,10 @@
 use crate::gameboy::{Gameboy};
+use crate::gameboy::cartridge::{*};
 
-pub fn load_instr(gb: &mut Gameboy, bytes: Vec<u8>) {
+pub fn test_cartridge(bytes: Vec<u8>) -> Cartridge {
     let mut rom = Box::new([0; 0x8000]);
     for (i, byte) in bytes.iter().enumerate() {
-        rom[(gb.pc as usize) + i] = *byte;
+        rom[0x0100 + i] = *byte;
     }
-    gb.load_rom(&rom);
+    load_cartridge(&*rom).unwrap()
 }

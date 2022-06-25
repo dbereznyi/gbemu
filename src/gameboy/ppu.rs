@@ -1,10 +1,35 @@
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use std::num::Wrapping;
 
 use crate::gameboy::{*};
+
+// Sprite attribute flags
+const OBJ_PRIORITY: u8 = 0b1000_0000;
+const OBJ_Y_FLIP: u8   = 0b0100_0000;
+const OBJ_X_FLIP: u8   = 0b0010_0000;
+const OBJ_PALETTE: u8  = 0b0001_0000;
+
+/// Object (sprite) attributes
+struct ObjAttr {
+    pub y: u8,
+    pub x: u8,
+    pub tile_number: u8,
+    pub flags: u8,
+}
+
+impl ObjAttr {
+    pub fn new(bytes: &[u8]) -> ObjAttr {
+        ObjAttr {
+            y: bytes[0],
+            x: bytes[1],
+            tile_number: bytes[2],
+            flags: bytes[3],
+        }
+    }
+}
 
 pub struct Ppu {
     pub vram: Arc<Mutex<[u8; 0x2000]>>, 
@@ -20,7 +45,22 @@ pub fn run_ppu(ppu: &mut Ppu) {
 
     loop {
         let io_ports = ppu.io_ports.lock().unwrap();
-        let wy = io_ports[IO_WY] as usize; // WY is only updated once per frame
+        if io_ports[IO_LCDC] & LCDC_ON == 0 {
+            drop(io_ports);
+            // Clear screen to all white
+            let mut screen = ppu.screen.lock().unwrap();
+            for y in 0..144 {
+                for x in 0..160 {
+                    screen[y][x] = 255;
+                }
+            }
+            drop(screen);
+
+            thread::sleep(Duration::new(0, 16_750_000)); // roughly the time of full frame draw + VBlank (16.75ms)
+            continue;
+        }
+
+        let wy = io_ports[IO_WY] as usize; // WY is only checked once per frame
         drop(io_ports);
         let mut curr_window_line = 0;
 
@@ -42,8 +82,23 @@ pub fn run_ppu(ppu: &mut Ppu) {
                 cvar.notify_one();
             }
             drop(io_ports);
-            // TODO access OAM when we handle sprites
+            let oam = ppu.oam.lock().unwrap();
+            let mut obj_attrs: Vec<(usize, ObjAttr)> = Vec::with_capacity(40);
+            for i in (0..0xa0).step_by(4) {
+                obj_attrs.push((i, ObjAttr::new(&oam[i..i+4])));
+            }
+            obj_attrs.sort_by(|(a_i, a_attr), (b_i, b_attr)| {
+                if a_attr.x != b_attr.x { 
+                    // Sort by X coord, descending (because sprites at end of the Vec will get
+                    // drawn on top)
+                    b_attr.x.cmp(&a_attr.x)
+                } else {
+                    // In the case of equal X coords, lower-entry sprites are drawn on top
+                    b_i.cmp(a_i)
+                }
+            });
             thread::sleep(Duration::new(0, 19000)); // roughly the time of OAM access (19 microsecs)
+            drop(oam);
 
             // Transfer data from VRAM
             let mut io_ports = ppu.io_ports.lock().unwrap();
@@ -54,6 +109,8 @@ pub fn run_ppu(ppu: &mut Ppu) {
             let wx = io_ports[IO_WX] as usize;
             let lcdc = io_ports[IO_LCDC];
             let bgp = io_ports[IO_BGP];
+            let obp0 = io_ports[IO_OBP0];
+            let obp1 = io_ports[IO_OBP1];
             drop(io_ports);
 
             let vram = &ppu.vram.lock().unwrap();
@@ -133,7 +190,72 @@ pub fn run_ppu(ppu: &mut Ppu) {
                     } 
                 }
 
-                // TODO draw sprites
+                if lcdc & LCDC_OBJ_DISP > 0 {
+                    for (_, obj) in obj_attrs.iter() {
+                        let obj_x = obj.x as usize;
+                        let obj_y = obj.y as usize;
+
+                        let x_in_range = x >= obj_x - 8 && x < obj_x;
+                        let y_in_range =
+                            if lcdc & LCDC_OBJ_SIZE > 0 {
+                                y >= obj_y - 16 && y < obj_y
+                            } else {
+                                y >= obj_y - 16 && y < obj_y - 8
+                            };
+
+                        if !x_in_range || !y_in_range {
+                            continue;
+                        }
+
+                        let row_ix = y - (obj_y - 16);
+                        let col_ix = x - (obj_x - 8);
+                        // apply Y flip and X flip if set
+                        let row_ix = 
+                            if obj.flags & OBJ_Y_FLIP > 0 {
+                                if lcdc & LCDC_OBJ_SIZE > 0 { 
+                                    15 - row_ix
+                                } else {
+                                    7 - row_ix
+                                }
+                            } else {
+                                row_ix
+                            };
+                        let col_ix =
+                            if obj.flags & OBJ_X_FLIP > 0 {
+                                7 - col_ix
+                            } else {
+                                col_ix
+                            };
+                        let tile_number = 
+                            if lcdc & LCDC_OBJ_SIZE > 0 {
+                                (obj.tile_number & 0b1111_1110) as usize
+                            } else {
+                                obj.tile_number as usize
+                            };
+                        let row_start = (tile_number * 16) + (row_ix * 2);
+                        let row = &bg_tile_data[row_start..row_start+2];
+                        // determine palette index from high and low bytes
+                        let col_mask = 1 << (7 - col_ix);
+                        let high_bit = (row[1] & col_mask) >> (7 - col_ix);
+                        let low_bit = (row[0] & col_mask) >> (7 - col_ix);
+                        let palette_ix = 2*high_bit + low_bit;
+                        // if this pixel is transparent, skip drawing
+                        if palette_ix == 0 {
+                            continue;
+                        }
+                        // determine pixel color using appropriate OBP register lookup
+                        let obp_mask = 0b11 << (palette_ix * 2);
+                        let obp_reg = if obj.flags & OBJ_PALETTE > 0 { obp1 } else { obp0 };
+                        let obp_palette_ix = (obp_reg & obp_mask) >> (palette_ix * 2);
+                        // if priority bit set and underlying pixel is not color 0 (white), 
+                        // then don't draw this pixel 
+                        let priority = obj.flags & OBJ_PRIORITY > 0;
+                        if priority && screen[y][x] != PALETTE[0] {
+                            continue;
+                        }
+                        screen[y][x] = PALETTE[obp_palette_ix as usize];
+                    }
+                }
             }
             drop(vram);
             drop(screen);
@@ -175,6 +297,6 @@ pub fn run_ppu(ppu: &mut Ppu) {
             cvar.notify_one();
         }
         drop(io_ports);
-        thread::sleep(Duration::new(0, 1087188)); // roughly the time of VBlank interval (4560 clock cycles)
+        thread::sleep(Duration::new(0, 1_087_188)); // roughly the time of VBlank interval (1.09ms)
     }
 }

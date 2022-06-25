@@ -1,12 +1,12 @@
 #[cfg(test)]
 use crate::gameboy::{*};
 use super::super::step::step;
-use super::utils::load_instr;
+use super::utils::test_cartridge;
 
 #[test]
 fn ld_r8_r8() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x41));
+    let cartridge = test_cartridge(vec!(0x41));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RB] = 0x12;
     gb.regs[RC] = 0x34;
 
@@ -19,8 +19,8 @@ fn ld_r8_r8() {
 
 #[test]
 fn ld_r8_d8() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x06, 0x99));
+    let cartridge = test_cartridge(vec!(0x06, 0x99));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RB] = 0x12;
 
     step(&mut gb);
@@ -32,8 +32,8 @@ fn ld_r8_d8() {
 
 #[test]
 fn ld_hl_d8() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x36, 0x99));
+    let cartridge = test_cartridge(vec!(0x36, 0x99));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
@@ -47,8 +47,8 @@ fn ld_hl_d8() {
 
 #[test]
 fn ld_id_r8() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x02));
+    let cartridge = test_cartridge(vec!(0x02));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.regs[RB] = 0xc2;
     gb.regs[RC] = 0x34;
@@ -63,8 +63,8 @@ fn ld_id_r8() {
 
 #[test]
 fn ld_r8_id() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x0a));
+    let cartridge = test_cartridge(vec!(0x0a));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x99);
     gb.regs[RB] = 0xc2;
     gb.regs[RC] = 0x34;
@@ -79,8 +79,8 @@ fn ld_r8_id() {
 
 #[test]
 fn ld_ra_hl_inc() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x2a));
+    let cartridge = test_cartridge(vec!(0x2a));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x99);
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
@@ -96,8 +96,8 @@ fn ld_ra_hl_inc() {
 
 #[test]
 fn ld_ra_hl_dec() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x3a));
+    let cartridge = test_cartridge(vec!(0x3a));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x99);
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
@@ -113,8 +113,8 @@ fn ld_ra_hl_dec() {
 
 #[test]
 fn ld_hl_ra_inc() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x22));
+    let cartridge = test_cartridge(vec!(0x22));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
@@ -130,8 +130,8 @@ fn ld_hl_ra_inc() {
 
 #[test]
 fn ld_hl_ra_dec() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x32));
+    let cartridge = test_cartridge(vec!(0x32));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
@@ -147,8 +147,8 @@ fn ld_hl_ra_dec() {
 
 #[test]
 fn ld_ra_nn() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xfa, 0x34, 0xc2));
+    let cartridge = test_cartridge(vec!(0xfa, 0x34, 0xc2));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x99);
     gb.regs[RA] = 0x05;
 
@@ -161,8 +161,8 @@ fn ld_ra_nn() {
 
 #[test]
 fn ld_nn_ra() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xea, 0x34, 0xc2));
+    let cartridge = test_cartridge(vec!(0xea, 0x34, 0xc2));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.regs[RA] = 0x99;
 
@@ -175,8 +175,8 @@ fn ld_nn_ra() {
 
 #[test]
 fn ldh_ra_rc() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf2));
+    let cartridge = test_cartridge(vec!(0xf2));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xff00 + 0x03, 0x99);
     gb.regs[RC] = 0x03;
     gb.regs[RA] = 0x05;
@@ -190,8 +190,8 @@ fn ldh_ra_rc() {
 
 #[test]
 fn ldh_rc_ra() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xe2));
+    let cartridge = test_cartridge(vec!(0xe2));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xff00 + 0x03, 0x05);
     gb.regs[RC] = 0x03;
     gb.regs[RA] = 0x99;
@@ -205,8 +205,8 @@ fn ldh_rc_ra() {
 
 #[test]
 fn ldh_ra_n()  {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf0, 0x03));
+    let cartridge = test_cartridge(vec!(0xf0, 0x03));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xff00 + 0x03, 0x99);
     gb.regs[RA] = 0x05;
 
@@ -219,8 +219,8 @@ fn ldh_ra_n()  {
 
 #[test]
 fn ldh_n_ra()  {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xe0, 0x03));
+    let cartridge = test_cartridge(vec!(0xe0, 0x03));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xff00 + 0x03, 0x05);
     gb.regs[RA] = 0x99;
 
@@ -233,8 +233,8 @@ fn ldh_n_ra()  {
 
 #[test]
 fn ld_r16_d16() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x11, 0xef, 0xbe));
+    let cartridge = test_cartridge(vec!(0x11, 0xef, 0xbe));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RD] = 0x05;
     gb.regs[RE] = 0x06;
 
@@ -247,8 +247,8 @@ fn ld_r16_d16() {
 
 #[test]
 fn ld_rsp_d16() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x31, 0xef, 0xbe));
+    let cartridge = test_cartridge(vec!(0x31, 0xef, 0xbe));
+    let mut gb = Gameboy::new(cartridge);
     gb.sp = 0x0506;
 
     step(&mut gb);
@@ -260,8 +260,8 @@ fn ld_rsp_d16() {
 
 #[test]
 fn ld_nn_sp() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0x08, 0x34, 0xc2));
+    let cartridge = test_cartridge(vec!(0x08, 0x34, 0xc2));
+    let mut gb = Gameboy::new(cartridge);
     gb.write(0xc234, 0x05);
     gb.write(0xc235, 0x06);
     gb.sp = 0xfffe;
@@ -276,8 +276,8 @@ fn ld_nn_sp() {
 
 #[test]
 fn ld_sp_hl() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf9));
+    let cartridge = test_cartridge(vec!(0xf9));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0xff;
     gb.regs[RL] = 0xee;
     gb.sp = 0xfffe;
@@ -291,8 +291,8 @@ fn ld_sp_hl() {
 
 #[test]
 fn push() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xc5));
+    let cartridge = test_cartridge(vec!(0xc5));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RB] = 0xbe;
     gb.regs[RC] = 0xef;
     gb.sp = 0xfffe;
@@ -308,8 +308,8 @@ fn push() {
 
 #[test]
 fn pop() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xc1));
+    let cartridge = test_cartridge(vec!(0xc1));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RB] = 0x05;
     gb.regs[RC] = 0x06;
     gb.sp = 0xfffc;
@@ -327,8 +327,8 @@ fn pop() {
 
 #[test]
 fn ld_hl_sp_r8_positive() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf8, 0x07));
+    let cartridge = test_cartridge(vec!(0xf8, 0x07));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0x05;
     gb.regs[RL] = 0x06;
     gb.sp = 0xcf00;
@@ -344,8 +344,8 @@ fn ld_hl_sp_r8_positive() {
 
 #[test]
 fn ld_hl_sp_r8_negative() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf8, (-7 as i8) as u8));
+    let cartridge = test_cartridge(vec!(0xf8, (-7 as i8) as u8));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0x05;
     gb.regs[RL] = 0x06;
     gb.sp = 0xcf00;
@@ -361,8 +361,8 @@ fn ld_hl_sp_r8_negative() {
 
 #[test]
 fn ld_hl_sp_r8_flag_c() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf8, 0x80));
+    let cartridge = test_cartridge(vec!(0xf8, 0x80));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0x05;
     gb.regs[RL] = 0x06;
     gb.sp = 0xfffd;
@@ -378,8 +378,8 @@ fn ld_hl_sp_r8_flag_c() {
 
 #[test]
 fn ld_hl_sp_r8_flag_h() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf8, 0x08));
+    let cartridge = test_cartridge(vec!(0xf8, 0x08));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0x05;
     gb.regs[RL] = 0x06;
     gb.sp = 0xff88;
@@ -395,8 +395,8 @@ fn ld_hl_sp_r8_flag_h() {
 
 #[test]
 fn ld_hl_sp_r8_flag_hc() {
-    let mut gb = Gameboy::new();
-    load_instr(&mut gb, vec!(0xf8, 0x88));
+    let cartridge = test_cartridge(vec!(0xf8, 0x88));
+    let mut gb = Gameboy::new(cartridge);
     gb.regs[RH] = 0x05;
     gb.regs[RL] = 0x06;
     gb.sp = 0xc08c;
