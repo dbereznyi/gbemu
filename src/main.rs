@@ -105,7 +105,10 @@ fn run_gameboy(cartridge: Cartridge) -> Result<(), String> {
                         Keycode::Left => io_ports[IO_SCX] = (Wrapping(io_ports[IO_SCX]) + Wrapping(1)).0,
                         Keycode::Up => io_ports[IO_SCY] = (Wrapping(io_ports[IO_SCY]) + Wrapping(1)).0,
                         Keycode::Down => io_ports[IO_SCY] = (Wrapping(io_ports[IO_SCY]) - Wrapping(1)).0,
-                        Keycode::L => io_ports[IO_LCDC] ^= LCDC_ON,
+                        Keycode::L => io_ports[IO_LCDC] ^= LCDC_ON, // Toggle LDC on/off
+                        Keycode::S => io_ports[IO_LCDC] ^= LCDC_OBJ_DISP, // Toggle sprites
+                        Keycode::B => io_ports[IO_LCDC] ^= LCDC_BG_DISP, // Toggle background
+                        Keycode::W => io_ports[IO_LCDC] ^= LCDC_WIN_DISP, // Toggle background
                         _ => {}
                     };
                 },
