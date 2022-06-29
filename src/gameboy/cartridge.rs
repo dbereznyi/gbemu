@@ -107,7 +107,7 @@ impl CartridgeT for CartridgeNoMbc {
         self.ram[addr as usize - 0xa000]
     }
 
-    fn write_rom(&mut self, addr: u16, value: u8) {
+    fn write_rom(&mut self, _addr: u16, _value: u8) {
         panic!("Cannot write to ROM in no-mbc cartridge")
     }
 

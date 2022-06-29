@@ -1,8 +1,7 @@
-use super::super::gameboy::{*};
-use super::exec::{*};
-use super::instruction::{
-    CarryMode, Src8, Dst8, Src16, Dst16, BitwiseOp, IncDec, AddSub, Cond, Instr
-};
+use crate::gameboy::gameboy::{*};
+use crate::gameboy::cpu::exec::{*};
+use crate::gameboy::cpu::instruction::{*};
+
 
 /// Decode the instruction at PC, then execute it and update PC and cycle count accordingly.
 pub fn step(gb: &mut Gameboy) {
@@ -73,7 +72,8 @@ pub fn step(gb: &mut Gameboy) {
         Instr::Set(bt, dst)    => set(gb, *bt, dst),
         Instr::Swap(dst)       => swap(gb, dst),
     }
-    gb.pc += Instr::size(&instr);
+    //println!("{:0>4X}: {:?}", gb.pc, instr);
+    gb.pc += Instr::size(gb, &instr);
     gb.cycles += Instr::num_cycles(gb, &instr);
 }
 

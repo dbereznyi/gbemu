@@ -225,19 +225,22 @@ impl Gameboy {
 
 impl fmt::Display for Gameboy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let io_ports = self.io_ports.lock().unwrap();
         write!(
             f, 
             concat!(
                 "PC: {:0>4X}, SP: {:0>X}, cycles: {:0>6}\n",
                 "Z: {:2}, N: {:2}, H: {:2}, C: {:2}\n",
                 "A: {:0>2X}, B: {:0>2X}, D: {:0>2X}, H: {:0>2X}\n",
-                "F: {:0>2X}, C: {:0>2X}, E: {:0>2X}, L: {:0>2X}",
+                "F: {:0>2X}, C: {:0>2X}, E: {:0>2X}, L: {:0>2X}\n",
+                "LY: {:0>2X}, LCDC: {:0>2X}, STAT: {:0>2X}",
             ),
             self.pc, self.sp, self.cycles,
             (self.regs[RF] & FLAG_Z) >> 7, (self.regs[RF] & FLAG_N) >> 6,
             (self.regs[RF] & FLAG_H) >> 5, (self.regs[RF] & FLAG_C) >> 4,
             self.regs[RA], self.regs[RB], self.regs[RD], self.regs[RH],
             self.regs[RF], self.regs[RC], self.regs[RE], self.regs[RL],
+            io_ports[IO_LY], io_ports[IO_LCDC], io_ports[IO_STAT],
         )
     }
 }

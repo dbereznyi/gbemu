@@ -1,11 +1,13 @@
 use std::num::Wrapping;
-use super::super::gameboy::{*};
+use crate::gameboy::gameboy::{*};
 
+#[derive(Debug)]
 pub enum CarryMode {
     NoCarry,
     WithCarry,
 }
 
+#[derive(Debug)]
 /// A source value used to compute the result of an instruction.
 pub enum Src8 {
     /// An 8-bit register.
@@ -36,6 +38,7 @@ impl Src8 {
 }
 
 /// A destination to store the result of an instruction.
+#[derive(Debug)]
 pub enum Dst8 {
     /// An 8-bit register.
     R8(R),
@@ -71,6 +74,7 @@ impl Dst8 {
     }
 }
 
+#[derive(Debug)]
 pub enum Src16 {
     /// A 16-bit register.
     R16(RR),
@@ -93,6 +97,7 @@ impl Src16 {
     }
 }
 
+#[derive(Debug)]
 pub enum Dst16 {
     /// A 16-bit register.
     R16(RR),
@@ -130,18 +135,22 @@ impl Dst16 {
     }
 }
 
+#[derive(Debug)]
 pub enum BitwiseOp {
     And, Xor, Or,
 }
 
+#[derive(Debug)]
 pub enum IncDec {
     Inc, Dec
 }
 
+#[derive(Debug)]
 pub enum AddSub {
     Add, Sub
 }
 
+#[derive(Debug)]
 pub enum Cond {
     Z,
     Nz,
@@ -160,6 +169,7 @@ impl Cond {
     }
 }
 
+#[derive(Debug)]
 pub enum Instr {
     // Control/misc
     Nop,
@@ -318,8 +328,8 @@ impl Instr {
     }
 
     /// The length, in bytes, of an instruction. Used to calculate next PC value.
-    /// For jump instructions, 0 is returned as PC is directly modified by the instruction.
-    pub fn size(instr: &Instr) -> u16 {
+    /// For jump instructions, 0 is returned if PC would be directly modified by the instruction.
+    pub fn size(gb: &Gameboy, instr: &Instr) -> u16 {
         match instr {
             Instr::Nop => 1,
             Instr::Stop => 2,
@@ -362,15 +372,14 @@ impl Instr {
             Instr::Add16SP(_) => 2,
             Instr::Inc16(_) | Instr::Dec16(_) => 1,
 
-            // PC-modifying instructions, always 0
             Instr::Jp(_) => 0,
-            Instr::JpCC(_, _) => 0,
+            Instr::JpCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
             Instr::Jr(_) => 0,
-            Instr::JrCC(_, _) => 0,
+            Instr::JrCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
             Instr::Call(_) => 0,
-            Instr::CallCC(_, _) => 0,
+            Instr::CallCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
             Instr::Ret => 0,
-            Instr::RetCC(_) => 0,
+            Instr::RetCC(cond) => if Cond::check(gb, cond) { 0 } else { 3 },
             Instr::Reti => 0,
             Instr::Rst(_) => 0,
 

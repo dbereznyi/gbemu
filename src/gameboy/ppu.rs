@@ -45,23 +45,10 @@ pub fn run_ppu(ppu: &mut Ppu) {
 
     loop {
         let io_ports = ppu.io_ports.lock().unwrap();
-        if io_ports[IO_LCDC] & LCDC_ON == 0 {
-            drop(io_ports);
-            // Clear screen to all white
-            let mut screen = ppu.screen.lock().unwrap();
-            for y in 0..144 {
-                for x in 0..160 {
-                    screen[y][x] = 255;
-                }
-            }
-            drop(screen);
-
-            thread::sleep(Duration::new(0, 16_750_000)); // roughly the time of full frame draw + VBlank (16.75ms)
-            continue;
-        }
-
+        let lcd_is_off = io_ports[IO_LCDC] & LCDC_ON == 0; // LCD should only be turned off in VBlank
         let wy = io_ports[IO_WY] as usize; // WY is only checked once per frame
         drop(io_ports);
+
         let mut curr_window_line = 0;
 
         for y in 0..144 {
@@ -137,7 +124,12 @@ pub fn run_ppu(ppu: &mut Ppu) {
             let mut screen = ppu.screen.lock().unwrap();
             for x in 0..160 {
                 const PALETTE: [u8; 4] = [255, 127, 63, 0];
+
                 screen[y][x] = PALETTE[0];
+
+                if lcd_is_off {
+                    continue;
+                }
 
                 if lcdc & LCDC_BG_DISP > 0 {  
                     // figure out which tile we are drawing 
@@ -145,7 +137,14 @@ pub fn run_ppu(ppu: &mut Ppu) {
                     let scrolled_y = (Wrapping(y as u8) + Wrapping(scy)).0;
                     let current_tile_ix = (scrolled_y as usize / 8)*32 + (scrolled_x as usize / 8);
                     // grab data for current tile row
-                    let tile_data_ix = bg_tile_map[current_tile_ix] as usize;
+                    let tile_data_ix = 
+                        if LCDC & LCDC_TILE_DATA > 0 {
+                            bg_tile_map[current_tile_ix] as usize
+                        } else {
+                            // If tile data is at 0x9000, these tile numbers go from -127 to 128
+                            // So a value of 0x80 refers to tile #0, and 0x00 refers to tile #128
+                            (Wrapping(bg_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
+                        };
                     let row_ix = (scrolled_y % 8) as usize;
                     let col_ix = (scrolled_x % 8) as usize;
                     let row_start = (tile_data_ix * 16) + (row_ix * 2);
@@ -167,7 +166,14 @@ pub fn run_ppu(ppu: &mut Ppu) {
                         let window_x = x - (wx - 7);
                         let current_tile_ix = (curr_window_line / 8)*32 + (window_x as usize / 8);
                         // grab data for current tile row    
-                        let tile_data_ix = win_tile_map[current_tile_ix] as usize;
+                        let tile_data_ix = 
+                            if LCDC & LCDC_TILE_DATA > 0 {
+                                win_tile_map[current_tile_ix] as usize
+                            } else {
+                                // If tile data is at 0x9000, these tile numbers go from -127 to 128
+                                // So a value of 0x80 refers to tile #0, and 0x00 refers to tile #128
+                                (Wrapping(win_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
+                            };
                         let row_ix = curr_window_line % 8;
                         let col_ix = window_x % 8;
                         let row_start = (tile_data_ix * 16) + (row_ix * 2);

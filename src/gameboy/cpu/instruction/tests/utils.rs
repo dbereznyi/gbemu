@@ -1,5 +1,4 @@
-use crate::gameboy::{Gameboy};
-use crate::gameboy::cartridge::{*};
+use crate::gameboy::cartridge::{Cartridge, load_cartridge};
 
 pub fn test_cartridge(bytes: Vec<u8>) -> Cartridge {
     let mut rom = Box::new([0; 0x8000]);

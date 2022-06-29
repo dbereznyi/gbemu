@@ -1,6 +1,5 @@
-#[cfg(test)]
 use crate::gameboy::{*};
-use super::super::step::step;
+use crate::gameboy::cpu::step::{step};
 use super::utils::test_cartridge;
 
 #[test]

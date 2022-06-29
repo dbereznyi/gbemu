@@ -1,7 +1,7 @@
 #[cfg(test)]
-use crate::gameboy::{*};
-use super::super::step;
 use super::utils::test_cartridge;
+use crate::gameboy::gameboy::{*};
+use crate::gameboy::cpu::step::{step};
 
 #[test]
 fn inc_r8() {
