@@ -1,4 +1,3 @@
-#[cfg(test)]
 use super::utils::test_cartridge;
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::cpu::step::{step};
@@ -296,4 +295,44 @@ fn add_16_hl_h() {
     assert_eq!(gb.regs[RL], 0x05);
     assert_eq!(gb.cycles, 2);
     assert_eq!(gb.pc, 0x0101);
+}
+
+#[test]
+fn daa_add() {
+    let cartridge = test_cartridge(vec!(
+        0x80, // add A, B
+        0x27, // daa
+    ));
+    let mut gb = Gameboy::new(cartridge);
+    gb.regs[RA] = 0x45;
+    gb.regs[RB] = 0x38;
+    gb.regs[RF] = FLAG_H;
+
+    step(&mut gb);
+    step(&mut gb);
+
+    assert_eq!(gb.regs[RF], 0);
+    assert_eq!(gb.regs[RA], 0x83);
+    assert_eq!(gb.cycles, 2);
+    assert_eq!(gb.pc, 0x0102);
+}
+
+#[test]
+fn daa_sub() {
+    let cartridge = test_cartridge(vec!(
+        0x90, // sub B
+        0x27, // daa
+    ));
+    let mut gb = Gameboy::new(cartridge);
+    gb.regs[RA] = 0x83;
+    gb.regs[RB] = 0x38;
+    gb.regs[RF] = FLAG_H;
+
+    step(&mut gb);
+    step(&mut gb);
+
+    assert_eq!(gb.regs[RF], FLAG_N);
+    assert_eq!(gb.regs[RA], 0x45);
+    assert_eq!(gb.cycles, 2);
+    assert_eq!(gb.pc, 0x0102);
 }

@@ -114,11 +114,17 @@ pub struct Gameboy {
 
 impl Gameboy {
     pub fn new(cartridge: Cartridge) -> Gameboy {
+        let mut io_ports = [0; 0x4d];
+        io_ports[IO_LCDC] = 0x91;
+        io_ports[IO_BGP] = 0xfc;
+        io_ports[IO_OBP0] = 0xff;
+        io_ports[IO_OBP1] = 0xff;
+
         Gameboy {
             wram: Box::new([0; 0x2000]),
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
-            io_ports: Arc::new(Mutex::new([0; 0x4d])),
+            io_ports: Arc::new(Mutex::new(io_ports)),
             iram: Box::new([0; 0x7f]),
             cartridge: cartridge,
 

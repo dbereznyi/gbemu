@@ -50,8 +50,104 @@ pub fn scf(gb: &mut Gameboy) {
 }
 
 pub fn daa(gb: &mut Gameboy) {
-    // TODO implement
-    panic!("TODO implement DAA");
+    let n = gb.regs[RF] & FLAG_N > 0;
+    let c = gb.regs[RF] & FLAG_C > 0;
+    let h = gb.regs[RF] & FLAG_H > 0;
+    let a_low = gb.regs[RA] & 0b0000_1111;
+    let a_high = (gb.regs[RA] & 0b1111_0000) >> 4;
+
+    let (add_to_a, new_c) = match (n, c, a_high, h, a_low) {
+        (false, false, high, false, low) => {
+            if (0x00..=0x09).contains(&high) && (0x00..=0x09).contains(&low) {
+                (0x00, 0)
+            } else if (0x00..=0x08).contains(&high) && (0x0a..=0x0f).contains(&low) {
+                (0x06, 0)
+            } else if (0x0a..=0x0f).contains(&high) && (0x00..=0x09).contains(&low) {
+                (0x60, 1)
+            } else if (0x09..=0x0f).contains(&high) && (0x0a..=0x0f).contains(&low) {
+                (0x66, 1)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (false, false, high, true, low) => {
+            if (0x00..=0x09).contains(&high) && (0x00..=0x03).contains(&low) {
+                (0x06, 0)
+            } else if (0x0a..=0x0f).contains(&high) && (0x00..=0x03).contains(&low) {
+                (0x66, 1)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (false, true, high, false, low) => {
+            if (0x00..=0x02).contains(&high) && (0x00..=0x09).contains(&low) {
+                (0x60, 1)
+            } else if (0x00..=0x02).contains(&high) && (0x0a..=0x0f).contains(&low) {
+                (0x66, 1)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (false, true, high, true, low) => {
+            if (0x00..=0x03).contains(&high) && (0x00..=0x03).contains(&low) {
+                (0x66, 1)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (true, false, high, false, low) => {
+            if (0x00..=0x09).contains(&high) && (0x00..=0x09).contains(&low) {
+                (0x00, 0)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (true, false, high, true, low) => {
+            if (0x00..=0x08).contains(&high) && (0x06..=0x0f).contains(&low) {
+                (0xfa, 0)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (true, true, high, false, low) => {
+            if (0x07..=0x0f).contains(&high) && (0x00..=0x09).contains(&low) {
+                (0xa0, 1)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+        (true, true, high, true, low) => {
+            if (0x06..=0x0f).contains(&high) && (0x06..=0x0f).contains(&low) {
+                (0x9a, 0)
+            } else {
+                panic!("Invalid register A value 0x{:0>2X} for N={},C={},H={}",
+                       gb.regs[RA], n, c, h)
+            }
+        },
+    };
+
+    gb.regs[RA] = (Wrapping(gb.regs[RA]) + Wrapping(add_to_a)).0;
+
+    if gb.regs[RA] == 0 {
+        gb.regs[RF] |= FLAG_Z;
+    } else {
+        gb.regs[RF] &= !FLAG_Z;
+    }
+
+    gb.regs[RF] &= !FLAG_H;
+
+    if new_c == 1 {
+        gb.regs[RF] |= FLAG_C;
+    } else {
+        gb.regs[RF] &= !FLAG_C;
+    }
 }
 
 pub fn cpl(gb: &mut Gameboy) {
