@@ -1,6 +1,5 @@
 mod gameboy;
 
-extern crate timer;
 extern crate sdl2;
 
 use std::thread;
