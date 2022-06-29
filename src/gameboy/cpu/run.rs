@@ -61,7 +61,7 @@ pub fn run_cpu(gb: &mut Gameboy) {
         if expected_runtime > actual_runtime {
             thread::sleep(expected_runtime - actual_runtime);
         }
-        println!("Expected: {:#?}, Actual: {:#?}", expected_runtime, actual_runtime);
+        //println!("Expected: {:#?}, Actual: {:#?}", expected_runtime, actual_runtime);
     }
 }
 

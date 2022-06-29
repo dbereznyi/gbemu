@@ -109,7 +109,7 @@ pub struct Gameboy {
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
 
     /// Holds pixel data to be drawn to the screen.
-    pub screen: Arc<Mutex<[[u8; 160]; 144]>>,
+    pub screen: Arc<Mutex<[[(u8, u8, u8); 160]; 144]>>,
 }
 
 impl Gameboy {
@@ -132,7 +132,7 @@ impl Gameboy {
 
             interrupt_received: Arc::new((Mutex::new(false), Condvar::new())),
 
-            screen: Arc::new(Mutex::new([[0; 160]; 144])),
+            screen: Arc::new(Mutex::new([[(0,0,0); 160]; 144])),
         }
     }
 

@@ -5,6 +5,7 @@ extern crate sdl2;
 
 use std::thread;
 use std::time::{Duration};
+use std::env;
 use std::fs;
 use std::num::{Wrapping};
 use std::sync::{Arc};
@@ -14,15 +15,40 @@ use sdl2::keyboard::{Keycode};
 use sdl2::pixels::{PixelFormatEnum};
 use crate::gameboy::{*};
 
+struct Config {
+    pub palette: [(u8,u8,u8); 4],
+}
+
+impl Config {
+    pub fn new(args: Vec<String>) -> Self {
+        let palette_str = if args.len() > 1 { args[1].as_str() } else { "grey" };
+        let palette = match palette_str {
+            "grey" => PALETTE_GREY,
+            "red" => PALETTE_RED,
+            "green" => PALETTE_GREEN,
+            "blue" => PALETTE_BLUE,
+            _ => {
+                println!("Unknown palette '{}', defaulting to palette 'grey'.", palette_str);
+                PALETTE_GREY
+            },
+        };
+
+        Self {
+            palette
+        }
+    }
+}
+
 fn main() -> Result<(), String> {
+    let config = Config::new(env::args().collect());
     let cart_bytes = fs::read("roms/hello-world.gb")
         .expect("Failed to open ROM file");
     let cart = load_cartridge(&cart_bytes)
         .expect("Failed to parse ROM file");
-    run_gameboy(cart)
+    run_gameboy(cart, config)
 }
 
-fn run_gameboy(cartridge: Cartridge) -> Result<(), String> {
+fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
     let mut gb = Gameboy::new(cartridge);
 
     //load_test_data(&mut gb);
@@ -37,6 +63,7 @@ fn run_gameboy(cartridge: Cartridge) -> Result<(), String> {
         screen: gb.screen.clone(),
         ime: gb.ime.clone(),
         interrupt_received: Arc::clone(&gb.interrupt_received),
+        palette: config.palette,
     };
     thread::spawn(move || { 
         run_ppu(&mut ppu);
@@ -69,32 +96,9 @@ fn run_gameboy(cartridge: Cartridge) -> Result<(), String> {
         .create_texture_streaming(PixelFormatEnum::RGB24, 160, 144)
         .map_err(|e| e.to_string())?;
 
-    let mut color: u32 = 0;
-
-    // An initial test texture
-    texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
-        for y in 0..144 {
-            for x in 0..160 {
-                let offset = y*pitch + x*3;
-
-                buffer[offset] = color as u8;
-                buffer[offset + 1] = color as u8;
-                buffer[offset + 2] = color as u8;
-
-                color += 64;
-                color %= 256;
-            }
-            color += 64;
-            color %= 256;
-        }
-    })?;
-
     canvas.clear();
-    canvas.copy(&texture, None, None)?;
-    canvas.present();
 
     let mut event_pump = sdl_context.event_pump()?;
-
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -122,9 +126,9 @@ fn run_gameboy(cartridge: Cartridge) -> Result<(), String> {
             for y in 0..144 {
                 for x in 0..160 {
                     let offset = y*pitch + x*3;
-                    buffer[offset] = screen[y][x];
-                    buffer[offset + 1] = screen[y][x];
-                    buffer[offset + 2] = screen[y][x];
+                    buffer[offset] = screen[y][x].0;
+                    buffer[offset + 1] = screen[y][x].1;
+                    buffer[offset + 2] = screen[y][x].2;
                 }
             }
         })?;

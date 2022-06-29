@@ -1,10 +1,14 @@
 use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
-use std::num::Wrapping;
+use std::time::{Duration};
+use std::num::{Wrapping};
+use crate::gameboy::gameboy::{*};
 
-use crate::gameboy::{*};
+pub const PALETTE_GREY: [(u8,u8,u8); 4] = [(255,255,255), (127,127,127), (63,63,63), (0,0,0)];
+pub const PALETTE_RED: [(u8,u8,u8); 4] = [(255,0,0), (127,0,0), (63,0,0), (0,0,0)];
+pub const PALETTE_GREEN: [(u8,u8,u8); 4] = [(0,255,0), (0,127,0), (0,63,0), (0,0,0)];
+pub const PALETTE_BLUE: [(u8,u8,u8); 4] = [(0,0,255), (0,0,127), (0,0,63), (0,0,0)];
 
 // Sprite attribute flags
 const OBJ_PRIORITY: u8 = 0b1000_0000;
@@ -35,9 +39,10 @@ pub struct Ppu {
     pub vram: Arc<Mutex<[u8; 0x2000]>>, 
     pub oam: Arc<Mutex<[u8; 0xa0]>>, 
     pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
-    pub screen: Arc<Mutex<[[u8; 160]; 144]>>,
+    pub screen: Arc<Mutex<[[(u8,u8,u8); 160]; 144]>>,
     pub ime: Arc<AtomicBool>,
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
+    pub palette: [(u8,u8,u8); 4],
 }
 
 pub fn run_ppu(ppu: &mut Ppu) {
@@ -107,6 +112,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
                 } else {
                     &vram[0x0800..0x1800]
                 };
+            let obj_tile_data = &vram[0x0000..0x1000]; // OBJ tile data is always at 0x8000-0x8fff
             let bg_tile_map = 
                 if lcdc & LCDC_BG_TILE_MAP > 0 {
                     &vram[0x1c00..0x2000]
@@ -123,9 +129,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
             // Draw pixels to the screen
             let mut screen = ppu.screen.lock().unwrap();
             for x in 0..160 {
-                const PALETTE: [u8; 4] = [255, 127, 63, 0];
-
-                screen[y][x] = PALETTE[0];
+                screen[y][x] = ppu.palette[0];
 
                 if lcd_is_off {
                     continue;
@@ -157,7 +161,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
                     // finally, determine pixel color using BGP register lookup
                     let bgp_mask = 0b11 << (palette_ix * 2);
                     let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
-                    screen[y][x] = PALETTE[bgp_palette_ix as usize];
+                    screen[y][x] = ppu.palette[bgp_palette_ix as usize];
                 }
 
                 if lcdc & LCDC_WIN_DISP > 0 {
@@ -186,7 +190,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
                         // finally, determine pixel color using BGP register lookup
                         let bgp_mask = 0b11 << (palette_ix * 2);
                         let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
-                        screen[y][x] = PALETTE[bgp_palette_ix as usize];
+                        screen[y][x] = ppu.palette[bgp_palette_ix as usize];
 
                         // If the window gets disabled during HBlank and then re-enabled later on,
                         // we want to continue drawing from where we left off
@@ -239,7 +243,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
                                 obj.tile_number as usize
                             };
                         let row_start = (tile_number * 16) + (row_ix * 2);
-                        let row = &bg_tile_data[row_start..row_start+2];
+                        let row = &obj_tile_data[row_start..row_start+2];
                         // determine palette index from high and low bytes
                         let col_mask = 1 << (7 - col_ix);
                         let high_bit = (row[1] & col_mask) >> (7 - col_ix);
@@ -253,13 +257,13 @@ pub fn run_ppu(ppu: &mut Ppu) {
                         let obp_mask = 0b11 << (palette_ix * 2);
                         let obp_reg = if obj.flags & OBJ_PALETTE > 0 { obp1 } else { obp0 };
                         let obp_palette_ix = (obp_reg & obp_mask) >> (palette_ix * 2);
-                        // if priority bit set and underlying pixel is not color 0 (white), 
+                        // if priority bit set and underlying pixel is not color 0,
                         // then don't draw this pixel 
                         let priority = obj.flags & OBJ_PRIORITY > 0;
-                        if priority && screen[y][x] != PALETTE[0] {
+                        if priority && screen[y][x] != ppu.palette[0] {
                             continue;
                         }
-                        screen[y][x] = PALETTE[obp_palette_ix as usize];
+                        screen[y][x] = ppu.palette[obp_palette_ix as usize];
                     }
                 }
             }
@@ -303,6 +307,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
             cvar.notify_one();
         }
         drop(io_ports);
+        // TODO properly simulate LY increasing from 144 to 153 throughout VBlank
         thread::sleep(Duration::new(0, 1_087_188)); // roughly the time of VBlank interval (1.09ms)
     }
 }
