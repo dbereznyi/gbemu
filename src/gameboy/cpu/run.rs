@@ -7,9 +7,9 @@ use crate::gameboy::cpu::exec::{push_pc};
 
 pub fn run_cpu(gb: &mut Gameboy) {
     loop {
-        // If CPU is halted, just wait until an interrupt wakes us up
+        // If CPU is halted, just wait until an interrupt wakes us up.
         // CPU will only be interrupted if IME is set and corresponding IE bit is set,
-        // so we will always get an interrupt we can process from this
+        // so we will always get an interrupt we can process from this.
         if gb.halted.load(Ordering::Relaxed) {
             let (mutex, cvar) = &*gb.interrupt_received;
             let mut interrupted = mutex.lock().unwrap();
@@ -22,7 +22,6 @@ pub fn run_cpu(gb: &mut Gameboy) {
         let cycles_start = gb.cycles;
         let start = Instant::now();
 
-        // Handle any interrupts that may have happened
         let mut io_ports = *gb.io_ports.lock().unwrap();
         if gb.ime.load(Ordering::Relaxed) && io_ports[IO_IF] > 0 {
             push_pc(gb);
@@ -54,7 +53,7 @@ pub fn run_cpu(gb: &mut Gameboy) {
         step(gb);
 
         // Figure out how much time we took to execute this instruction, and pad out the time if we
-        // took less than was needed
+        // took less than was needed.
         let cycles_elapsed = (gb.cycles - cycles_start) as u32;
         let actual_runtime = start.elapsed();
         let expected_runtime = Duration::new(0, 1000 * cycles_elapsed);
@@ -64,4 +63,3 @@ pub fn run_cpu(gb: &mut Gameboy) {
         //println!("Expected: {:#?}, Actual: {:#?}", expected_runtime, actual_runtime);
     }
 }
-

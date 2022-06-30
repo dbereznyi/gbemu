@@ -2,11 +2,10 @@ use crate::gameboy::gameboy::{*};
 use crate::gameboy::cpu::exec::{*};
 use crate::gameboy::cpu::instruction::{*};
 
-
 /// Decode the instruction at PC, then execute it and update PC and cycle count accordingly.
 pub fn step(gb: &mut Gameboy) {
     let instr = decode(gb);
-    match &instr {
+    match instr {
         // Control/misc
         Instr::Nop             => (),
         Instr::Stop            => stop(gb),
@@ -38,23 +37,20 @@ pub fn step(gb: &mut Gameboy) {
         Instr::Cp(src)         => cp(gb, src),
         // 16-bit arithmetic
         Instr::Add16HL(src)    => add_16_hl(gb, src),
-        Instr::Add16SP(n)      => {
-            let value = Src16::get_value(gb, &Src16::SPD8(*n));
-            Dst16::set_value(gb, &Dst16::RSP, value);
-        },
+        Instr::Add16SP(n)      => add_16_sp(gb, n),
         Instr::Inc16(dst)      => inc_dec_16(gb, dst, IncDec::Inc),
         Instr::Dec16(dst)      => inc_dec_16(gb, dst, IncDec::Dec),
         // Control-flow
         Instr::Jp(src)         => jp(gb, src),
-        Instr::JpCC(cc, nn)    => jp_cond(gb, cc, *nn),
-        Instr::Jr(offset)      => jr(gb, *offset),
-        Instr::JrCC(cc, off)   => jr_cond(gb, cc, *off),
-        Instr::Call(nn)        => call(gb, *nn),
-        Instr::CallCC(cc, nn)  => call_cond(gb, cc, *nn),
+        Instr::JpCC(cc, nn)    => jp_cond(gb, cc, nn),
+        Instr::Jr(offset)      => jr(gb, offset),
+        Instr::JrCC(cc, off)   => jr_cond(gb, cc, off),
+        Instr::Call(nn)        => call(gb, nn),
+        Instr::CallCC(cc, nn)  => call_cond(gb, cc, nn),
         Instr::Ret             => ret(gb),
         Instr::RetCC(cc)       => ret_cond(gb, cc),
         Instr::Reti            => reti(gb),
-        Instr::Rst(n)          => rst(gb, *n),
+        Instr::Rst(n)          => rst(gb, n),
         // Rotates, shifts, bit operations
         Instr::Rlca            => rlca(gb),
         Instr::Rla             => rla(gb),
@@ -67,27 +63,24 @@ pub fn step(gb: &mut Gameboy) {
         Instr::Sla(dst)        => sla(gb, dst),
         Instr::Sra(dst)        => sra(gb, dst),
         Instr::Srl(dst)        => srl(gb, dst),
-        Instr::Bit(bt, dst)    => bit(gb, *bt, dst),
-        Instr::Res(bt, dst)    => res(gb, *bt, dst),
-        Instr::Set(bt, dst)    => set(gb, *bt, dst),
+        Instr::Bit(bt, dst)    => bit(gb, bt, dst),
+        Instr::Res(bt, dst)    => res(gb, bt, dst),
+        Instr::Set(bt, dst)    => set(gb, bt, dst),
         Instr::Swap(dst)       => swap(gb, dst),
     }
-    //println!("{:0>4X}: {:?}", gb.pc, instr);
-    gb.pc += Instr::size(gb, &instr);
-    gb.cycles += Instr::num_cycles(gb, &instr);
+    gb.pc += instr.size(gb);
+    gb.cycles += instr.num_cycles(gb);
 }
 
-/// Decode the current instruction.
 fn decode(gb: &Gameboy) -> Instr {
     let opcode = gb.read(gb.pc);
     // The bottom three bits of the opcode are used to indicate src reg for certain loads
-    //let r_src = (opcode & 0b0000_0111) as usize;
     let src_reg = reg_encoding_to_src(opcode & 0b0000_0111);
     // Grab data from PC+1 and PC+2 in case we need them as arguments
     // This shouldn't go out of bounds since instructions aren't executed in top of mem
     let n = gb.read(gb.pc + 1);
     let n2 = gb.read(gb.pc + 2);
-    // Convert from little-endian, n is lsb and n2 is msb
+    // n and n2 intepreted as LSB 16-bit value
     let nn = ((n2 as u16) << 8) | (n as u16);
     // For 0xCB instructions, n encodes a register in the bottom three bits
     let cb_reg = reg_encoding_to_dst(n & 0b0000_0111);
@@ -286,7 +279,6 @@ fn decode(gb: &Gameboy) -> Instr {
     }
 }
 
-/// Converts an opcode register encoding to the corresponding Dst8 value.
 fn reg_encoding_to_dst(encoding: u8) -> Dst8 {
     match encoding {
         0 => Dst8::R8(RB),

@@ -10,13 +10,11 @@ pub const PALETTE_RED: [(u8,u8,u8); 4] = [(255,0,0), (127,0,0), (63,0,0), (0,0,0
 pub const PALETTE_GREEN: [(u8,u8,u8); 4] = [(0,255,0), (0,127,0), (0,63,0), (0,0,0)];
 pub const PALETTE_BLUE: [(u8,u8,u8); 4] = [(0,0,255), (0,0,127), (0,0,63), (0,0,0)];
 
-// Sprite attribute flags
 const OBJ_PRIORITY: u8 = 0b1000_0000;
 const OBJ_Y_FLIP: u8   = 0b0100_0000;
 const OBJ_X_FLIP: u8   = 0b0010_0000;
 const OBJ_PALETTE: u8  = 0b0001_0000;
 
-/// Object (sprite) attributes
 struct ObjAttr {
     pub y: u8,
     pub x: u8,
@@ -57,7 +55,6 @@ pub fn run_ppu(ppu: &mut Ppu) {
         let mut curr_window_line = 0;
 
         for y in 0..144 {
-            // Transfer data from OAM
             let mut io_ports = ppu.io_ports.lock().unwrap();
             io_ports[IO_LY] = y as u8;
             if io_ports[IO_LY] == io_ports[IO_LYC] {
@@ -81,18 +78,17 @@ pub fn run_ppu(ppu: &mut Ppu) {
             }
             obj_attrs.sort_by(|(a_i, a_attr), (b_i, b_attr)| {
                 if a_attr.x != b_attr.x { 
-                    // Sort by X coord, descending (because sprites at end of the Vec will get
-                    // drawn on top)
+                    // Sort by X coord, descending so that sprites at end of the Vec will get
+                    // drawn on top
                     b_attr.x.cmp(&a_attr.x)
                 } else {
                     // In the case of equal X coords, lower-entry sprites are drawn on top
                     b_i.cmp(a_i)
                 }
             });
-            thread::sleep(Duration::new(0, 19000)); // roughly the time of OAM access (19 microsecs)
+            thread::sleep(Duration::new(0, 19000));
             drop(oam);
 
-            // Transfer data from VRAM
             let mut io_ports = ppu.io_ports.lock().unwrap();
             io_ports[IO_STAT] &= !STAT_MODE;
             io_ports[IO_STAT] |= STAT_MODE_TRANSFER;
@@ -126,7 +122,6 @@ pub fn run_ppu(ppu: &mut Ppu) {
                     &vram[0x1800..0x1c00]
                 };
 
-            // Draw pixels to the screen
             let mut screen = ppu.screen.lock().unwrap();
             for x in 0..160 {
                 screen[y][x] = ppu.palette[0];
@@ -136,29 +131,23 @@ pub fn run_ppu(ppu: &mut Ppu) {
                 }
 
                 if lcdc & LCDC_BG_DISP > 0 {  
-                    // figure out which tile we are drawing 
                     let scrolled_x = (Wrapping(x as u8) + Wrapping(scx)).0;
                     let scrolled_y = (Wrapping(y as u8) + Wrapping(scy)).0;
                     let current_tile_ix = (scrolled_y as usize / 8)*32 + (scrolled_x as usize / 8);
-                    // grab data for current tile row
                     let tile_data_ix = 
                         if LCDC & LCDC_TILE_DATA > 0 {
                             bg_tile_map[current_tile_ix] as usize
                         } else {
-                            // If tile data is at 0x9000, these tile numbers go from -127 to 128
-                            // So a value of 0x80 refers to tile #0, and 0x00 refers to tile #128
                             (Wrapping(bg_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
                         };
                     let row_ix = (scrolled_y % 8) as usize;
                     let col_ix = (scrolled_x % 8) as usize;
                     let row_start = (tile_data_ix * 16) + (row_ix * 2);
                     let row = &bg_tile_data[row_start..row_start+2];
-                    // determine palette index from high and low bytes
                     let col_mask = 1 << (7 - col_ix);
                     let high_bit = (row[1] & col_mask) >> (7 - col_ix);
                     let low_bit = (row[0] & col_mask) >> (7 - col_ix);
                     let palette_ix = 2*high_bit + low_bit;
-                    // finally, determine pixel color using BGP register lookup
                     let bgp_mask = 0b11 << (palette_ix * 2);
                     let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
                     screen[y][x] = ppu.palette[bgp_palette_ix as usize];
@@ -166,28 +155,22 @@ pub fn run_ppu(ppu: &mut Ppu) {
 
                 if lcdc & LCDC_WIN_DISP > 0 {
                     if x + 7 >= wx && x + 7 <= 166 && y >= wy && y <= 143 {
-                        // figure out which tile we are drawing
                         let window_x = x - (wx - 7);
                         let current_tile_ix = (curr_window_line / 8)*32 + (window_x as usize / 8);
-                        // grab data for current tile row    
                         let tile_data_ix = 
                             if LCDC & LCDC_TILE_DATA > 0 {
                                 win_tile_map[current_tile_ix] as usize
                             } else {
-                                // If tile data is at 0x9000, these tile numbers go from -127 to 128
-                                // So a value of 0x80 refers to tile #0, and 0x00 refers to tile #128
                                 (Wrapping(win_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
                             };
                         let row_ix = curr_window_line % 8;
                         let col_ix = window_x % 8;
                         let row_start = (tile_data_ix * 16) + (row_ix * 2);
                         let row = &bg_tile_data[row_start..row_start+2];
-                        // determine palette index from high and low bytes
                         let col_mask = 1 << (7 - col_ix);
                         let high_bit = (row[1] & col_mask) >> (7 - col_ix);
                         let low_bit = (row[0] & col_mask) >> (7 - col_ix);
                         let palette_ix = 2*high_bit + low_bit;
-                        // finally, determine pixel color using BGP register lookup
                         let bgp_mask = 0b11 << (palette_ix * 2);
                         let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
                         screen[y][x] = ppu.palette[bgp_palette_ix as usize];
@@ -219,7 +202,6 @@ pub fn run_ppu(ppu: &mut Ppu) {
 
                         let row_ix = y - (obj_y - 16);
                         let col_ix = x - (obj_x - 8);
-                        // apply Y flip and X flip if set
                         let row_ix = 
                             if obj.flags & OBJ_Y_FLIP > 0 {
                                 if lcdc & LCDC_OBJ_SIZE > 0 { 
@@ -244,21 +226,16 @@ pub fn run_ppu(ppu: &mut Ppu) {
                             };
                         let row_start = (tile_number * 16) + (row_ix * 2);
                         let row = &obj_tile_data[row_start..row_start+2];
-                        // determine palette index from high and low bytes
                         let col_mask = 1 << (7 - col_ix);
                         let high_bit = (row[1] & col_mask) >> (7 - col_ix);
                         let low_bit = (row[0] & col_mask) >> (7 - col_ix);
                         let palette_ix = 2*high_bit + low_bit;
-                        // if this pixel is transparent, skip drawing
                         if palette_ix == 0 {
                             continue;
                         }
-                        // determine pixel color using appropriate OBP register lookup
                         let obp_mask = 0b11 << (palette_ix * 2);
                         let obp_reg = if obj.flags & OBJ_PALETTE > 0 { obp1 } else { obp0 };
                         let obp_palette_ix = (obp_reg & obp_mask) >> (palette_ix * 2);
-                        // if priority bit set and underlying pixel is not color 0,
-                        // then don't draw this pixel 
                         let priority = obj.flags & OBJ_PRIORITY > 0;
                         if priority && screen[y][x] != ppu.palette[0] {
                             continue;
@@ -270,8 +247,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
             drop(vram);
             drop(screen);
 
-            // Enter HBlank period, and trigger an interrupt if Mode 00 interrupts enabled in STAT
-            // or LYC incident interrupts enabled in STAT and LY=LYC
+            // HBlank
 
             let mut io_ports = ppu.io_ports.lock().unwrap();
             io_ports[IO_STAT] &= !STAT_MODE;
@@ -288,11 +264,10 @@ pub fn run_ppu(ppu: &mut Ppu) {
                 cvar.notify_one();
             }
             drop(io_ports);
-            thread::sleep(Duration::new(0, 48600)); // roughly the time of HBlank interval (48.6 microsecs)
+            thread::sleep(Duration::new(0, 48600));
         }
         
-        // Enter VBlank period, and trigger an interrupt if VBlank interrupts enabled in IE
-        // or if LCDC interrupts enabled in IE and Mode 01 interrupts enabled in STAT
+        // VBlank
 
         let mut io_ports = ppu.io_ports.lock().unwrap();
         io_ports[IO_STAT] &= !STAT_MODE;
@@ -308,6 +283,6 @@ pub fn run_ppu(ppu: &mut Ppu) {
         }
         drop(io_ports);
         // TODO properly simulate LY increasing from 144 to 153 throughout VBlank
-        thread::sleep(Duration::new(0, 1_087_188)); // roughly the time of VBlank interval (1.09ms)
+        thread::sleep(Duration::new(0, 1_087_188));
     }
 }

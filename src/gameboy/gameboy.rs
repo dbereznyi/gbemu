@@ -4,13 +4,11 @@ use std::sync::atomic::{AtomicBool};
 
 use crate::gameboy::cartridge::{*};
 
-// Registers are accessed by indexing into Gameboy.regs
-/// The type of an 8-bit register
+/// 8-bit register.
 pub type R = usize;
-/// The type of a 16-bit register, i.e. a pair of 8-bit registers used together
+/// 16-bit register, i.e. a pair of 8-bit registers used together.
 pub type RR = (usize, usize);
 
-// 8-bit register aliases
 pub const RB: R = 0;
 pub const RC: R = 1;
 pub const RD: R = 2;
@@ -20,19 +18,17 @@ pub const RL: R = 5;
 pub const RF: R = 6;
 pub const RA: R = 7;
 
-// 16-bit register aliases
 pub const RAF: RR = (RA, RF);
 pub const RBC: RR = (RB, RC);
 pub const RDE: RR = (RD, RE);
 pub const RHL: RR = (RH, RL);
 
-// Flag aliases
 pub const FLAG_Z: u8 = 0b10000000;
 pub const FLAG_N: u8 = 0b01000000;
 pub const FLAG_H: u8 = 0b00100000;
 pub const FLAG_C: u8 = 0b00010000;
 
-// IO port/register aliases, relative to 0xff00
+// IO port/register aliases, relative to 0xff00.
 pub const IO_IF: usize   = 0x0f;
 pub const IO_LCDC: usize = 0x40; 
 pub const IO_STAT: usize = 0x41;
@@ -49,7 +45,6 @@ pub const IO_WX: usize   = 0x4b;
 // of the io_ports array
 pub const IO_IE: usize   = 0x4c;
 
-// LCDC settings
 pub const LCDC_ON: u8           = 0b1000_0000;
 pub const LCDC_WIN_TILE_MAP: u8 = 0b0100_0000;
 pub const LCDC_WIN_DISP: u8     = 0b0010_0000;
@@ -59,7 +54,6 @@ pub const LCDC_OBJ_SIZE: u8     = 0b0000_0100;
 pub const LCDC_OBJ_DISP: u8     = 0b0000_0010;
 pub const LCDC_BG_DISP: u8      = 0b0000_0001;
 
-// STAT settings
 pub const STAT_INT_LYC: u8 = 0b0100_0000;
 pub const STAT_INT_M10: u8 = 0b0010_0000;
 pub const STAT_INT_M01: u8 = 0b0001_0000;
@@ -67,13 +61,12 @@ pub const STAT_INT_M00: u8 = 0b0000_1000;
 pub const STAT_LYC_SET: u8 = 0b0000_0100;
 pub const STAT_MODE: u8    = 0b0000_0011;
 
-// STAT modes
 pub const STAT_MODE_HBLANK: u8   = 0b0000_0000;
 pub const STAT_MODE_VBLANK: u8   = 0b0000_0001;
 pub const STAT_MODE_OAM: u8      = 0b0000_0010;
 pub const STAT_MODE_TRANSFER: u8 = 0b0000_0011;
 
-// Interrupt flags (used for IF and IE registers)
+// Interrupt flags, used for IF and IE registers.
 pub const VBLANK: u8    = 0b0000_0001;
 pub const LCDC: u8      = 0b0000_0010;
 pub const TIMER: u8     = 0b0000_0100;
@@ -81,26 +74,17 @@ pub const SERIAL: u8    = 0b0000_1000;
 pub const HI_TO_LOW: u8 = 0b0001_0000;
 
 pub struct Gameboy {
-    /// Working RAM, accessible by CPU only.
     wram: Box<[u8; 0x2000]>,
-    /// Video RAM, accessible by CPU and PPU (but not at the same time).
     pub vram: Arc<Mutex<[u8; 0x2000]>>,
-    /// Object (sprite) Attribute Memory, used by PPU and can be written to via DMA transfer.
     pub oam: Arc<Mutex<[u8; 0xa0]>>,
-    /// IO Ports and hardware control registers.
     pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
-    /// Internal RAM, used e.g. for stack.
-    iram: Box<[u8; 0x7f]>,
-    /// The currently-loaded cartridge.
+    hram: Box<[u8; 0x7f]>,
     cartridge: Cartridge,
 
-    /// Elapsed machine cycles.
     pub cycles: u64, 
     pub pc: u16,
     pub sp: u16,
-    /// Registers A, B, C, D, E, F, H, L.
     pub regs: [u8; 8], 
-    /// Interrupt Master Enable.
     pub ime: Arc<AtomicBool>,
     pub halted: Arc<AtomicBool>,
     pub stopped: Arc<AtomicBool>,
@@ -125,7 +109,7 @@ impl Gameboy {
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
             io_ports: Arc::new(Mutex::new(io_ports)),
-            iram: Box::new([0; 0x7f]),
+            hram: Box::new([0; 0x7f]),
             cartridge: cartridge,
 
             cycles: 0,
@@ -142,7 +126,6 @@ impl Gameboy {
         }
     }
 
-    /// Reads a byte from the specified address according to the memory map.
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7fff => {
@@ -176,7 +159,7 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff80..=0xfffe => {
-                self.iram[(addr - 0xff80) as usize]
+                self.hram[(addr - 0xff80) as usize]
             },
             0xffff => {
                 let io_ports = self.io_ports.lock().unwrap();
@@ -185,7 +168,6 @@ impl Gameboy {
         }
     }
 
-    /// Writes a byte to the specified address according to the memory map.
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x7fff => {
@@ -219,7 +201,7 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff80..=0xfffe => {
-                self.iram[(addr - 0xff80) as usize] = value
+                self.hram[(addr - 0xff80) as usize] = value
             },
             0xffff => {
                 let mut io_ports = self.io_ports.lock().unwrap();

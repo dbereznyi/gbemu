@@ -1,14 +1,13 @@
 use std::num::Wrapping;
 use crate::gameboy::gameboy::{*};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum CarryMode {
     NoCarry,
     WithCarry,
 }
 
-#[derive(Debug)]
-/// A source value used to compute the result of an instruction.
+#[derive(Debug, Copy, Clone)]
 pub enum Src8 {
     /// An 8-bit register.
     R8(R),
@@ -25,8 +24,8 @@ pub enum Src8 {
 }
 
 impl Src8 {
-    pub fn get_value(gb: &Gameboy, src: &Src8) -> u8 {
-        match *src {
+    pub fn read(&self, gb: &Gameboy) -> u8 {
+        match *self {
             Src8::R8(r) => gb.regs[r],
             Src8::Id(rr) => gb.read(rr_to_u16(gb, rr)),
             Src8::IdFFRC => gb.read(0xff00 | (gb.regs[RC] as u16)),
@@ -37,8 +36,7 @@ impl Src8 {
     }
 }
 
-/// A destination to store the result of an instruction.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Dst8 {
     /// An 8-bit register.
     R8(R),
@@ -53,8 +51,8 @@ pub enum Dst8 {
 }
 
 impl Dst8 {
-    pub fn get_value(gb: &Gameboy, dst: &Dst8) -> u8 {
-        match *dst {
+    pub fn read(&self, gb: &Gameboy) -> u8 {
+        match *self {
             Dst8::R8(r) => gb.regs[r],
             Dst8::Id(rr) => gb.read(rr_to_u16(gb, rr)),
             Dst8::IdFFRC => gb.read(0xff00 | (gb.regs[RC] as u16)),
@@ -63,8 +61,8 @@ impl Dst8 {
         }
     }
 
-    pub fn set_value(gb: &mut Gameboy, dst: &Dst8, value: u8) {
-        match *dst {
+    pub fn write(&self, gb: &mut Gameboy, value: u8) {
+        match *self {
             Dst8::R8(r) => gb.regs[r] = value,
             Dst8::Id(rr) => gb.write(rr_to_u16(gb, rr), value),
             Dst8::IdFFRC => gb.write(0xff00 | (gb.regs[RC] as u16), value),
@@ -74,7 +72,7 @@ impl Dst8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Src16 {
     /// A 16-bit register.
     R16(RR),
@@ -87,8 +85,8 @@ pub enum Src16 {
 }
 
 impl Src16 {
-    pub fn get_value(gb: &Gameboy, src: &Src16) -> u16 {
-        match *src {
+    pub fn read(&self, gb: &Gameboy) -> u16 {
+        match *self {
             Src16::R16(rr) => rr_to_u16(gb, rr),
             Src16::RSP => gb.sp,
             Src16::D16(nn) => nn,
@@ -97,7 +95,7 @@ impl Src16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Dst16 {
     /// A 16-bit register.
     R16(RR),
@@ -108,8 +106,8 @@ pub enum Dst16 {
 }
 
 impl Dst16 {
-    pub fn get_value(gb: &Gameboy, dst: &Dst16) -> u16 {
-        match *dst {
+    pub fn read(&self, gb: &Gameboy) -> u16 {
+        match *self {
             Dst16::R16(rr) => rr_to_u16(gb, rr),
             Dst16::RSP => gb.sp,
             Dst16::IdNN(nn) => {
@@ -120,8 +118,8 @@ impl Dst16 {
         }
     }
 
-    pub fn set_value(gb: &mut Gameboy, dst: &Dst16, value: u16) {
-        match *dst {
+    pub fn write(&self, gb: &mut Gameboy, value: u16) {
+        match *self {
             Dst16::R16(rr) => {
                 gb.regs[rr.0] = (value >> 8) as u8;
                 gb.regs[rr.1] = value as u8;
@@ -135,22 +133,22 @@ impl Dst16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum BitwiseOp {
     And, Xor, Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum IncDec {
     Inc, Dec
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum AddSub {
     Add, Sub
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Cond {
     Z,
     Nz,
@@ -159,8 +157,8 @@ pub enum Cond {
 }
 
 impl Cond {
-    pub fn check(gb: &Gameboy, cond: &Cond) -> bool {
-        match cond {
+    pub fn check(&self, gb: &Gameboy) -> bool {
+        match *self {
             Cond::Z => ((gb.regs[RF] & FLAG_Z) >> 7) == 1,
             Cond::Nz => ((gb.regs[RF] & FLAG_Z) >> 7) == 0,
             Cond::C => ((gb.regs[RF] & FLAG_C) >> 4) == 1,
@@ -169,7 +167,7 @@ impl Cond {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Instr {
     // Control/misc
     Nop,
@@ -236,8 +234,8 @@ pub enum Instr {
 
 impl Instr {
     /// The number of machine cycles an instruction takes to execute.
-    pub fn num_cycles(gb: &Gameboy, instr: &Instr) -> u64 {
-        match instr {
+    pub fn num_cycles(&self, gb: &Gameboy) -> u64 {
+        match self {
             Instr::Nop => 1,
             Instr::Stop => 1,
             Instr::Halt => 1,
@@ -291,13 +289,13 @@ impl Instr {
                 Src16::R16(RHL) => 1,
                 _ => panic!("Invalid dst, src"),
             },
-            Instr::JpCC(cond, _) => if Cond::check(gb, cond) { 4 } else { 3 },
+            Instr::JpCC(cond, _) => if cond.check(gb) { 4 } else { 3 },
             Instr::Jr(_) => 3,
-            Instr::JrCC(cond, _) => if Cond::check(gb, cond) { 3 } else { 2 },
+            Instr::JrCC(cond, _) => if cond.check(gb) { 3 } else { 2 },
             Instr::Call(_) => 6,
-            Instr::CallCC(cond, _) => if Cond::check(gb, cond) { 6 } else { 3 },
+            Instr::CallCC(cond, _) => if cond.check(gb) { 6 } else { 3 },
             Instr::Ret => 4,
-            Instr::RetCC(cond) => if Cond::check(gb, cond) { 5 } else { 2 },
+            Instr::RetCC(cond) => if cond.check(gb) { 5 } else { 2 },
             Instr::Reti => 4,
             Instr::Rst(_) => 4,
 
@@ -329,8 +327,8 @@ impl Instr {
 
     /// The length, in bytes, of an instruction. Used to calculate next PC value.
     /// For jump instructions, 0 is returned if PC would be directly modified by the instruction.
-    pub fn size(gb: &Gameboy, instr: &Instr) -> u16 {
-        match instr {
+    pub fn size(&self, gb: &Gameboy) -> u16 {
+        match self {
             Instr::Nop => 1,
             Instr::Stop => 2,
             Instr::Halt => 1,
@@ -373,13 +371,13 @@ impl Instr {
             Instr::Inc16(_) | Instr::Dec16(_) => 1,
 
             Instr::Jp(_) => 0,
-            Instr::JpCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
+            Instr::JpCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
             Instr::Jr(_) => 0,
-            Instr::JrCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
+            Instr::JrCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
             Instr::Call(_) => 0,
-            Instr::CallCC(cond, _) => if Cond::check(gb, cond) { 0 } else { 3 },
+            Instr::CallCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
             Instr::Ret => 0,
-            Instr::RetCC(cond) => if Cond::check(gb, cond) { 0 } else { 3 },
+            Instr::RetCC(cond) => if cond.check(gb) { 0 } else { 3 },
             Instr::Reti => 0,
             Instr::Rst(_) => 0,
 
