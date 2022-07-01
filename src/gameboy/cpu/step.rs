@@ -68,8 +68,10 @@ pub fn step(gb: &mut Gameboy) {
         Instr::Set(bt, dst)    => set(gb, bt, dst),
         Instr::Swap(dst)       => swap(gb, dst),
     }
+    let cycles = instr.num_cycles(gb);
+    //println!("({}) ${:0>4X}: {:?} (took {} cycles)", gb.cycles, gb.pc, instr, cycles);
     gb.pc += instr.size(gb);
-    gb.cycles += instr.num_cycles(gb);
+    gb.cycles += cycles;
 }
 
 fn decode(gb: &Gameboy) -> Instr {

@@ -6,6 +6,8 @@ use crate::gameboy::cpu::step::{step};
 use crate::gameboy::cpu::exec::{push_pc};
 
 pub fn run_cpu(gb: &mut Gameboy) {
+    let cpu_start = Instant::now();
+
     loop {
         // If CPU is halted, just wait until an interrupt wakes us up.
         // CPU will only be interrupted if IME is set and corresponding IE bit is set,
@@ -18,29 +20,26 @@ pub fn run_cpu(gb: &mut Gameboy) {
             }
             *interrupted = false;
         } 
-        
-        let cycles_start = gb.cycles;
-        let start = Instant::now();
 
-        let mut io_ports = *gb.io_ports.lock().unwrap();
-        if gb.ime.load(Ordering::Relaxed) && io_ports[IO_IF] > 0 {
+        let io_if = gb.io_ports.read(IO_IF);
+        if gb.ime.load(Ordering::Relaxed) && io_if > 0 {
             push_pc(gb);
 
-            if io_ports[IO_IF] & VBLANK > 0 {
+            if io_if & VBLANK > 0 {
                 gb.pc = 0x0040;
-                io_ports[IO_IF] &= !VBLANK;
-            } else if io_ports[IO_IF] & LCDC > 0 {
+                gb.io_ports.and(IO_IF, !VBLANK);
+            } else if io_if & LCDC > 0 {
                 gb.pc = 0x0048;
-                io_ports[IO_IF] &= !LCDC;
-            } else if io_ports[IO_IF] & TIMER > 0 {
+                gb.io_ports.and(IO_IF, !LCDC);
+            } else if io_if & TIMER > 0 {
                 gb.pc = 0x0050;
-                io_ports[IO_IF] &= !TIMER;
-            } else if io_ports[IO_IF] & SERIAL > 0 {
+                gb.io_ports.and(IO_IF, !TIMER);
+            } else if io_if & SERIAL > 0 {
                 gb.pc = 0x0058;
-                io_ports[IO_IF] &= !SERIAL;
-            } else if io_ports[IO_IF] & HI_TO_LOW > 0 {
+                gb.io_ports.and(IO_IF, !SERIAL);
+            } else if io_if & HI_TO_LOW > 0 {
                 gb.pc = 0x0060;
-                io_ports[IO_IF] &= !HI_TO_LOW;
+                gb.io_ports.and(IO_IF, !HI_TO_LOW);
             }
 
             gb.ime.store(false, Ordering::Relaxed);
@@ -48,18 +47,13 @@ pub fn run_cpu(gb: &mut Gameboy) {
             let mut interrupted = mutex.lock().unwrap();
             *interrupted = false;
         }
-        drop(io_ports);
 
         step(gb);
 
-        // Figure out how much time we took to execute this instruction, and pad out the time if we
-        // took less than was needed.
-        let cycles_elapsed = (gb.cycles - cycles_start) as u32;
-        let actual_runtime = start.elapsed();
-        let expected_runtime = Duration::new(0, 1000 * cycles_elapsed);
-        if expected_runtime > actual_runtime {
-            thread::sleep(expected_runtime - actual_runtime);
+        let elapsed = cpu_start.elapsed();
+        let expected = Duration::from_micros(gb.cycles); 
+        if expected > elapsed {
+            thread::sleep(expected - elapsed);
         }
-        //println!("Expected: {:#?}, Actual: {:#?}", expected_runtime, actual_runtime);
     }
 }

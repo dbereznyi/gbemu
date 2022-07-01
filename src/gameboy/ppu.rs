@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration};
+use std::time::{Duration, Instant};
 use std::num::{Wrapping};
 use crate::gameboy::gameboy::{*};
 
@@ -36,7 +36,7 @@ impl ObjAttr {
 pub struct Ppu {
     pub vram: Arc<Mutex<[u8; 0x2000]>>, 
     pub oam: Arc<Mutex<[u8; 0xa0]>>, 
-    pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
+    pub io_ports: Arc<IoPorts>,
     pub screen: Arc<Mutex<[[(u8,u8,u8); 160]; 144]>>,
     pub ime: Arc<AtomicBool>,
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
@@ -45,32 +45,31 @@ pub struct Ppu {
 
 pub fn run_ppu(ppu: &mut Ppu) {
     let (mutex, cvar) = &*ppu.interrupt_received;
+    let io_ports = &ppu.io_ports;
+
+    let ppu_start = Instant::now();
 
     loop {
-        let io_ports = ppu.io_ports.lock().unwrap();
-        let lcd_is_off = io_ports[IO_LCDC] & LCDC_ON == 0; // LCD should only be turned off in VBlank
-        let wy = io_ports[IO_WY] as usize; // WY is only checked once per frame
-        drop(io_ports);
+        let lcd_is_off = io_ports.read(IO_LCDC) & LCDC_ON == 0; // LCD should only be turned off in VBlank
+        let wy = io_ports.read(IO_WY) as usize; // WY is only checked once per frame
 
         let mut curr_window_line = 0;
 
         for y in 0..144 {
-            let mut io_ports = ppu.io_ports.lock().unwrap();
-            io_ports[IO_LY] = y as u8;
-            if io_ports[IO_LY] == io_ports[IO_LYC] {
-                io_ports[IO_STAT] |= STAT_LYC_SET;
+            io_ports.write(IO_LY, y as u8);
+            if io_ports.read(IO_LY) == io_ports.read(IO_LYC) {
+                io_ports.or(IO_STAT, STAT_LYC_SET);
             } else {
-                io_ports[IO_STAT] &= !STAT_LYC_SET;
+                io_ports.and(IO_STAT, !STAT_LYC_SET);
             }
-            io_ports[IO_STAT] &= !STAT_MODE;
-            io_ports[IO_STAT] |= STAT_MODE_OAM;
-            if ppu.ime.load(Ordering::Relaxed) && io_ports[IO_IE] & LCDC > 0 && io_ports[IO_STAT] & STAT_INT_M10 > 0 {
-                io_ports[IO_IF] |= LCDC;
+            io_ports.and(IO_STAT, !STAT_MODE);
+            io_ports.or(IO_STAT, STAT_MODE_OAM);
+            if ppu.ime.load(Ordering::Relaxed) && io_ports.read(IO_IE) & LCDC > 0 && io_ports.read(IO_STAT) & STAT_INT_M10 > 0 {
+                io_ports.or(IO_IF, LCDC);
                 let mut interrupted = mutex.lock().unwrap();
                 *interrupted = true;
                 cvar.notify_one();
             }
-            drop(io_ports);
             let oam = ppu.oam.lock().unwrap();
             let mut obj_attrs: Vec<(usize, ObjAttr)> = Vec::with_capacity(40);
             for i in (0..0xa0).step_by(4) {
@@ -86,21 +85,17 @@ pub fn run_ppu(ppu: &mut Ppu) {
                     b_i.cmp(a_i)
                 }
             });
-            thread::sleep(Duration::new(0, 19000));
             drop(oam);
 
-            let mut io_ports = ppu.io_ports.lock().unwrap();
-            io_ports[IO_STAT] &= !STAT_MODE;
-            io_ports[IO_STAT] |= STAT_MODE_TRANSFER;
-            let scx = io_ports[IO_SCX];
-            let scy = io_ports[IO_SCY];
-            let wx = io_ports[IO_WX] as usize;
-            let lcdc = io_ports[IO_LCDC];
-            let bgp = io_ports[IO_BGP];
-            let obp0 = io_ports[IO_OBP0];
-            let obp1 = io_ports[IO_OBP1];
-            drop(io_ports);
-
+            io_ports.and(IO_STAT, !STAT_MODE);
+            io_ports.or(IO_STAT, STAT_MODE_TRANSFER);
+            let scx = io_ports.read(IO_SCX);
+            let scy = io_ports.read(IO_SCY);
+            let wx = io_ports.read(IO_WX) as usize;
+            let lcdc = io_ports.read(IO_LCDC);
+            let bgp = io_ports.read(IO_BGP);
+            let obp0 = io_ports.read(IO_OBP0);
+            let obp1 = io_ports.read(IO_OBP1);
             let vram = &ppu.vram.lock().unwrap();
             let bg_tile_data = 
                 if lcdc & LCDC_TILE_DATA > 0 { 
@@ -249,39 +244,35 @@ pub fn run_ppu(ppu: &mut Ppu) {
 
             // HBlank
 
-            let mut io_ports = ppu.io_ports.lock().unwrap();
-            io_ports[IO_STAT] &= !STAT_MODE;
-            io_ports[IO_STAT] |= STAT_MODE_HBLANK;
-            let int_on_hblank = io_ports[IO_STAT] & STAT_INT_M00 > 0;
-            let int_on_lyc_incident = io_ports[IO_STAT] & STAT_INT_LYC > 0;
-            let lyc_incident = io_ports[IO_STAT] & STAT_LYC_SET > 0;
+            io_ports.and(IO_STAT, !STAT_MODE);
+            io_ports.or(IO_STAT, STAT_MODE_HBLANK);
+            let int_on_hblank = io_ports.read(IO_STAT) & STAT_INT_M00 > 0;
+            let int_on_lyc_incident = io_ports.read(IO_STAT) & STAT_INT_LYC > 0;
+            let lyc_incident = io_ports.read(IO_STAT) & STAT_LYC_SET > 0;
             if ppu.ime.load(Ordering::Relaxed)
-                && io_ports[IO_IE] & LCDC > 0 
+                && io_ports.read(IO_IE) & LCDC > 0 
                 && (int_on_hblank || (int_on_lyc_incident && lyc_incident)) {
-                io_ports[IO_IF] |= LCDC;
+                io_ports.or(IO_IF, LCDC);
                 let mut interrupted = mutex.lock().unwrap();
                 *interrupted = true;
                 cvar.notify_one();
             }
-            drop(io_ports);
             thread::sleep(Duration::new(0, 48600));
         }
         
         // VBlank
 
-        let mut io_ports = ppu.io_ports.lock().unwrap();
-        io_ports[IO_STAT] &= !STAT_MODE;
-        io_ports[IO_STAT] |= STAT_MODE_VBLANK;
-        io_ports[IO_LY] = 144;
-        let int_on_vblank = io_ports[IO_IE] & VBLANK > 0;
-        let int_on_m01 = (io_ports[IO_IE] & LCDC > 0) && (io_ports[IO_STAT] & STAT_INT_M01 > 0);
+        io_ports.and(IO_STAT, !STAT_MODE);
+        io_ports.or(IO_STAT, STAT_MODE_VBLANK);
+        io_ports.write(IO_LY, 144);
+        let int_on_vblank = io_ports.read(IO_IE) & VBLANK > 0;
+        let int_on_m01 = (io_ports.read(IO_IE) & LCDC > 0) && (io_ports.read(IO_STAT) & STAT_INT_M01 > 0);
         if ppu.ime.load(Ordering::Relaxed) && (int_on_vblank || int_on_m01) {
-            io_ports[IO_IF] |= VBLANK;
+            io_ports.or(IO_IF, VBLANK);
             let mut interrupted = mutex.lock().unwrap();
             *interrupted = true;
             cvar.notify_one();
         }
-        drop(io_ports);
         // TODO properly simulate LY increasing from 144 to 153 throughout VBlank
         thread::sleep(Duration::new(0, 1_087_188));
     }

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicBool};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::gameboy::cartridge::{*};
 
@@ -73,11 +73,43 @@ pub const TIMER: u8     = 0b0000_0100;
 pub const SERIAL: u8    = 0b0000_1000;
 pub const HI_TO_LOW: u8 = 0b0001_0000;
 
+pub struct IoPorts {
+    io_ports: [AtomicU8; 0x4d],
+}
+
+impl IoPorts {
+    pub fn new(io_ports: [AtomicU8; 0x4d]) -> Self {
+        Self {
+            io_ports
+        }
+    }
+
+    pub fn read(&self, port: usize) -> u8 {
+        self.io_ports[port].load(Ordering::Relaxed)
+    }
+
+    pub fn write(&self, port: usize, value: u8) {
+        self.io_ports[port].store(value, Ordering::Relaxed)
+    }
+
+    pub fn and(&self, port: usize, value: u8) {
+        self.io_ports[port].fetch_and(value, Ordering::Relaxed);
+    }
+
+    pub fn or(&self, port: usize, value: u8) {
+        self.io_ports[port].fetch_or(value, Ordering::Relaxed);
+    }
+
+    pub fn xor(&self, port: usize, value: u8) {
+        self.io_ports[port].fetch_xor(value, Ordering::Relaxed);
+    }
+}
+
 pub struct Gameboy {
     wram: Box<[u8; 0x2000]>,
     pub vram: Arc<Mutex<[u8; 0x2000]>>,
     pub oam: Arc<Mutex<[u8; 0xa0]>>,
-    pub io_ports: Arc<Mutex<[u8; 0x4d]>>,
+    pub io_ports: Arc<IoPorts>,
     hram: Box<[u8; 0x7f]>,
     cartridge: Cartridge,
 
@@ -92,23 +124,24 @@ pub struct Gameboy {
     /// CPU can wait on this variable to sleep until interrupted.
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
 
-    /// Holds pixel data to be drawn to the screen.
+    /// Pixel data to be drawn to the screen.
     pub screen: Arc<Mutex<[[(u8, u8, u8); 160]; 144]>>,
 }
 
 impl Gameboy {
     pub fn new(cartridge: Cartridge) -> Gameboy {
-        let mut io_ports = [0; 0x4d];
-        io_ports[IO_LCDC] = 0x91;
-        io_ports[IO_BGP] = 0xfc;
-        io_ports[IO_OBP0] = 0xff;
-        io_ports[IO_OBP1] = 0xff;
+        const ZERO_AU8: AtomicU8 = AtomicU8::new(0);
+        let io_ports = IoPorts::new([ZERO_AU8; 0x4d]);
+        io_ports.write(IO_LCDC, 0x91);
+        io_ports.write(IO_BGP, 0xfc);
+        io_ports.write(IO_OBP0, 0xff);
+        io_ports.write(IO_OBP1, 0xff);
 
         Gameboy {
             wram: Box::new([0; 0x2000]),
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
-            io_ports: Arc::new(Mutex::new(io_ports)),
+            io_ports: Arc::new(io_ports),
             hram: Box::new([0; 0x7f]),
             cartridge: cartridge,
 
@@ -152,8 +185,7 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff00..=0xff4b => {
-                let io_ports = self.io_ports.lock().unwrap();
-                io_ports[(addr - 0xff00) as usize]
+                self.io_ports.read((addr - 0xff00) as usize)
             },
             0xff4c..=0xff7f => {
                 panic!("Error: attempt to read from invalid memory")
@@ -162,8 +194,7 @@ impl Gameboy {
                 self.hram[(addr - 0xff80) as usize]
             },
             0xffff => {
-                let io_ports = self.io_ports.lock().unwrap();
-                io_ports[IO_IE]
+                self.io_ports.read(IO_IE)
             },
         }
     }
@@ -194,8 +225,7 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff00..=0xff4b => {
-                let mut io_ports = self.io_ports.lock().unwrap();
-                io_ports[(addr - 0xff00) as usize] = value
+                self.io_ports.write((addr - 0xff00) as usize, value)
             },
             0xff4c..=0xff7f => {
                 panic!("Error: attempt to read from invalid memory")
@@ -204,8 +234,7 @@ impl Gameboy {
                 self.hram[(addr - 0xff80) as usize] = value
             },
             0xffff => {
-                let mut io_ports = self.io_ports.lock().unwrap();
-                io_ports[IO_IE] = value
+                self.io_ports.write(IO_IE, value)
             },
         }
     }
@@ -213,7 +242,6 @@ impl Gameboy {
 
 impl fmt::Display for Gameboy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let io_ports = self.io_ports.lock().unwrap();
         write!(
             f, 
             concat!(
@@ -228,7 +256,7 @@ impl fmt::Display for Gameboy {
             (self.regs[RF] & FLAG_H) >> 5, (self.regs[RF] & FLAG_C) >> 4,
             self.regs[RA], self.regs[RB], self.regs[RD], self.regs[RH],
             self.regs[RF], self.regs[RC], self.regs[RE], self.regs[RL],
-            io_ports[IO_LY], io_ports[IO_LCDC], io_ports[IO_STAT],
+            self.io_ports.read(IO_LY), self.io_ports.read(IO_LCDC), self.io_ports.read(IO_STAT),
         )
     }
 }
