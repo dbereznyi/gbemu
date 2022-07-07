@@ -23,6 +23,7 @@ pub fn run_cpu(
                 interrupted = cvar.wait(interrupted).unwrap();
             }
             *interrupted = false;
+            gb.halted.store(false, Ordering::Relaxed);
         } 
 
         let io_if = gb.io_ports.read(IO_IF);

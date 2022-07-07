@@ -1,0 +1,13 @@
+These are simple test ROMs that can be used to verify or debug various emulator features.
+
+hello-world.gb
+    Displays a fancy Hello World graphic to the screen.
+    Does not halt or use interrupts. Simply waits until first VBlank period, copies tile and tile map data,
+    then enters an infinite loop.
+
+window.gb
+    Simple window test that uses the LCDC Mode 00 (HBlank) interrupt to enable and disable the window at
+    different Y lines. End result is that the first 20 lines of the window are displayed 10 at the top of
+    the screen and 10 at the bottom of the screen.
+    After copying tile and tile map data, enables LCDC Mode 00 interupts and then halts. On every HBlank,
+    checks LY to see whether to enable or disable the window by using the LCDC window flag.

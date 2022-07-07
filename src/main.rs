@@ -15,17 +15,21 @@ use argparse::{ArgumentParser, Store, StoreTrue};
 use crate::gameboy::{*};
 
 struct Config {
+    pub rom_filepath: String,
     pub palette: [(u8,u8,u8); 4],
     pub debug_show_speed: bool,
 }
 
 impl Config {
     pub fn new() -> Result<Self, i32> {
+        let mut rom_filepath = String::from("roms/hello-world.gb");
         let mut palette_str = String::from("grey");
         let mut debug_show_speed = false;
 
         {
             let mut ap = ArgumentParser::new();
+            ap.refer(&mut rom_filepath)
+                .add_argument("rom_filepath", Store, "Path to a Gameboy ROM file");
             ap.refer(&mut palette_str)
                 .add_option(&["-p", "--palette"], Store, "Configure color palette");
             ap.refer(&mut debug_show_speed)
@@ -45,6 +49,7 @@ impl Config {
         };
 
         let config = Self {
+            rom_filepath,
             palette,
             debug_show_speed,
         };
@@ -56,7 +61,7 @@ impl Config {
 fn main() -> Result<(), String> {
     let config = Config::new()
         .map_err(|e| e.to_string())?;
-    let cart_bytes = fs::read("roms/hello-world.gb")
+    let cart_bytes = fs::read(&config.rom_filepath)
         .expect("Failed to open ROM file");
     let cart = load_cartridge(&cart_bytes)
         .expect("Failed to parse ROM file");
