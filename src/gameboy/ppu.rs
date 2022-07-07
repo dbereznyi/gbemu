@@ -1,14 +1,19 @@
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::num::{Wrapping};
+use std::convert::TryInto;
 use crate::gameboy::gameboy::{*};
 
 pub const PALETTE_GREY: [(u8,u8,u8); 4] = [(255,255,255), (127,127,127), (63,63,63), (0,0,0)];
 pub const PALETTE_RED: [(u8,u8,u8); 4] = [(255,0,0), (127,0,0), (63,0,0), (0,0,0)];
 pub const PALETTE_GREEN: [(u8,u8,u8); 4] = [(0,255,0), (0,127,0), (0,63,0), (0,0,0)];
 pub const PALETTE_BLUE: [(u8,u8,u8); 4] = [(0,0,255), (0,0,127), (0,0,63), (0,0,0)];
+
+const HBLANK_TIME: Duration = Duration::from_nanos(48_600);
+const VBLANK_TIME: Duration = Duration::from_nanos(1_087_188);
+const FRAME_TIME: Duration  = Duration::from_nanos(16_750_000);
 
 const OBJ_PRIORITY: u8 = 0b1000_0000;
 const OBJ_Y_FLIP: u8   = 0b0100_0000;
@@ -43,11 +48,15 @@ pub struct Ppu {
     pub palette: [(u8,u8,u8); 4],
 }
 
-pub fn run_ppu(ppu: &mut Ppu) {
+pub fn run_ppu(
+    ppu: &mut Ppu,
+    ppu_actual_time_micros: Arc<AtomicU64>,
+    ppu_expected_time_micros: Arc<AtomicU64>) {
     let (mutex, cvar) = &*ppu.interrupt_received;
     let io_ports = &ppu.io_ports;
 
     let ppu_start = Instant::now();
+    let mut frames_drawn: u128 = 0;
 
     loop {
         let lcd_is_off = io_ports.read(IO_LCDC) & LCDC_ON == 0; // LCD should only be turned off in VBlank
@@ -257,7 +266,7 @@ pub fn run_ppu(ppu: &mut Ppu) {
                 *interrupted = true;
                 cvar.notify_one();
             }
-            thread::sleep(Duration::new(0, 48600));
+            thread::sleep(HBLANK_TIME);
         }
         
         // VBlank
@@ -274,6 +283,16 @@ pub fn run_ppu(ppu: &mut Ppu) {
             cvar.notify_one();
         }
         // TODO properly simulate LY increasing from 144 to 153 throughout VBlank
-        thread::sleep(Duration::new(0, 1_087_188));
+        thread::sleep(VBLANK_TIME);
+
+        frames_drawn += 1;
+
+        let elapsed = ppu_start.elapsed();
+        let expected = Duration::from_nanos((FRAME_TIME.as_nanos() * frames_drawn).try_into().unwrap());
+        if expected > elapsed {
+            thread::sleep(expected - elapsed);
+        }
+        ppu_actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
+        ppu_expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
     }
 }

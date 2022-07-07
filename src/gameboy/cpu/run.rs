@@ -1,11 +1,15 @@
 use std::thread;
 use std::time::{Duration, Instant};
-use std::sync::atomic::{Ordering};
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::cpu::step::{step};
 use crate::gameboy::cpu::exec::{push_pc};
 
-pub fn run_cpu(gb: &mut Gameboy) {
+pub fn run_cpu(
+    gb: &mut Gameboy,
+    cpu_actual_time_micros: Arc<AtomicU64>,
+    cpu_expected_time_micros: Arc<AtomicU64>) {
     let cpu_start = Instant::now();
 
     loop {
@@ -55,5 +59,7 @@ pub fn run_cpu(gb: &mut Gameboy) {
         if expected > elapsed {
             thread::sleep(expected - elapsed);
         }
+        cpu_actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
+        cpu_expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
     }
 }

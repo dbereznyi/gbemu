@@ -4,23 +4,36 @@ extern crate sdl2;
 
 use std::thread;
 use std::time::{Duration};
-use std::env;
 use std::fs;
 use std::num::{Wrapping};
 use std::sync::{Arc};
+use std::sync::atomic::{Ordering};
 use sdl2::event::{Event};
 use sdl2::keyboard::{Keycode};
 use sdl2::pixels::{PixelFormatEnum};
+use argparse::{ArgumentParser, Store, StoreTrue};
 use crate::gameboy::{*};
 
 struct Config {
     pub palette: [(u8,u8,u8); 4],
+    pub debug_show_speed: bool,
 }
 
 impl Config {
-    pub fn new(args: Vec<String>) -> Self {
-        let palette_str = if args.len() > 1 { args[1].as_str() } else { "grey" };
-        let palette = match palette_str {
+    pub fn new() -> Result<Self, i32> {
+        let mut palette_str = String::from("grey");
+        let mut debug_show_speed = false;
+
+        {
+            let mut ap = ArgumentParser::new();
+            ap.refer(&mut palette_str)
+                .add_option(&["-p", "--palette"], Store, "Configure color palette");
+            ap.refer(&mut debug_show_speed)
+                .add_option(&["-s", "--debug-speed"], StoreTrue, "Write CPU and PPU speed to console");
+            ap.parse_args()?;
+        }
+
+        let palette = match palette_str.as_str() {
             "grey" => PALETTE_GREY,
             "red" => PALETTE_RED,
             "green" => PALETTE_GREEN,
@@ -31,14 +44,18 @@ impl Config {
             },
         };
 
-        Self {
-            palette
-        }
+        let config = Self {
+            palette,
+            debug_show_speed,
+        };
+
+        Ok(config)
     }
 }
 
 fn main() -> Result<(), String> {
-    let config = Config::new(env::args().collect());
+    let config = Config::new()
+        .map_err(|e| e.to_string())?;
     let cart_bytes = fs::read("roms/hello-world.gb")
         .expect("Failed to open ROM file");
     let cart = load_cartridge(&cart_bytes)
@@ -54,6 +71,12 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
     let io_ports_sdl = gb.io_ports.clone();
     let screen_sdl = gb.screen.clone();
 
+    let debug = Debug::new();
+    let cpu_expected_time_micros = debug.cpu_expected_time_micros.clone();
+    let cpu_actual_time_micros = debug.cpu_actual_time_micros.clone();
+    let ppu_expected_time_micros = debug.ppu_expected_time_micros.clone();
+    let ppu_actual_time_micros = debug.ppu_actual_time_micros.clone();
+
     let mut ppu = Ppu {
         vram: gb.vram.clone(),
         oam: gb.oam.clone(),
@@ -64,11 +87,11 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         palette: config.palette,
     };
     thread::Builder::new().name("ppu".into()).spawn(move || { 
-        run_ppu(&mut ppu);
+        run_ppu(&mut ppu, ppu_expected_time_micros, ppu_actual_time_micros);
     }).expect("Failed to create ppu thread");
 
     thread::Builder::new().name("cpu".into()).spawn(move || {
-        run_cpu(&mut gb);
+        run_cpu(&mut gb, cpu_expected_time_micros, cpu_actual_time_micros);
     }).expect("Failed to create cpu thread");
 
     // SDL code
@@ -96,11 +119,12 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
 
     canvas.clear();
 
+    let mut frames: u128 = 0;
     let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'running,
+                Event::Quit { .. } => break 'running,
                 Event::KeyDown { keycode: Some(kc), .. } => {
                     let scx = io_ports_sdl.read(IO_SCX);
                     let scy = io_ports_sdl.read(IO_SCY);
@@ -113,6 +137,7 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
                         Keycode::S => io_ports_sdl.xor(IO_LCDC, LCDC_OBJ_DISP), // Toggle sprites
                         Keycode::B => io_ports_sdl.xor(IO_LCDC, LCDC_BG_DISP), // Toggle background
                         Keycode::W => io_ports_sdl.xor(IO_LCDC, LCDC_WIN_DISP), // Toggle background
+                        Keycode::Q | Keycode::Escape => break 'running,
                         _ => {}
                     };
                 },
@@ -133,6 +158,17 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         })?;
         canvas.copy(&texture, None, None)?;
         canvas.present();
+
+        if config.debug_show_speed && frames % 30 == 0 {
+            let cpu_expected = debug.cpu_expected_time_micros.load(Ordering::Relaxed);
+            let cpu_actual = debug.cpu_actual_time_micros.load(Ordering::Relaxed);
+            let ppu_expected = debug.ppu_expected_time_micros.load(Ordering::Relaxed);
+            let ppu_actual = debug.ppu_actual_time_micros.load(Ordering::Relaxed);
+            println!("CPU: {}/{} ({:.4}%)", cpu_actual, cpu_expected, (cpu_actual as f64 / cpu_expected as f64) * 100.0);
+            println!("PPU: {}/{} ({:.4}%)", ppu_actual, ppu_expected, (ppu_actual as f64 / ppu_expected as f64) * 100.0);
+        }
+
+        frames += 1;
 
         thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
