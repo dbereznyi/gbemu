@@ -9,13 +9,14 @@ use std::num::{Wrapping};
 use std::sync::{Arc};
 use std::sync::atomic::{Ordering};
 use sdl2::event::{Event};
-use sdl2::keyboard::{Keycode};
+use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::pixels::{PixelFormatEnum};
 use argparse::{ArgumentParser, Store, StoreTrue};
 use crate::gameboy::{*};
 
 struct Config {
     pub rom_filepath: String,
+    pub scale: u32,
     pub palette: [(u8,u8,u8); 4],
     pub debug_show_speed: bool,
 }
@@ -23,6 +24,7 @@ struct Config {
 impl Config {
     pub fn new() -> Result<Self, i32> {
         let mut rom_filepath = String::from("roms/hello-world.gb");
+        let mut scale = 4;
         let mut palette_str = String::from("grey");
         let mut debug_show_speed = false;
 
@@ -30,11 +32,18 @@ impl Config {
             let mut ap = ArgumentParser::new();
             ap.refer(&mut rom_filepath)
                 .add_argument("rom_filepath", Store, "Path to a Gameboy ROM file");
+            ap.refer(&mut scale)
+                .add_option(&["-s", "--scale"], Store, "Scale factor for the display (e.g. 1x, 2x, 3x...)");
             ap.refer(&mut palette_str)
                 .add_option(&["-p", "--palette"], Store, "Configure color palette");
             ap.refer(&mut debug_show_speed)
-                .add_option(&["-s", "--debug-speed"], StoreTrue, "Write CPU and PPU speed to console");
+                .add_option(&["-d", "--debug-speed"], StoreTrue, "Write CPU and PPU speed to console");
             ap.parse_args()?;
+        }
+
+        if scale < 1 {
+            println!("Minimum allowed scale factor is 1, clamping");
+            scale = 1;
         }
 
         let palette = match palette_str.as_str() {
@@ -50,6 +59,7 @@ impl Config {
 
         let config = Self {
             rom_filepath,
+            scale,
             palette,
             debug_show_speed,
         };
@@ -71,42 +81,51 @@ fn main() -> Result<(), String> {
 fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
     let mut gb = Gameboy::new(cartridge);
 
+    // TODO support specifying breakpoints in the command-line args
+    //gb.breakpoints.push(0x01d3);
+
     //load_test_data(&mut gb);
 
     let io_ports_sdl = gb.io_ports.clone();
+    let ime_sdl = gb.ime.clone();
+    let controller_data_sdl = gb.controller_data.clone();
+    let interrupt_received_sdl = Arc::clone(&gb.interrupt_received);
     let screen_sdl = gb.screen.clone();
 
-    let debug = Debug::new();
-    let cpu_expected_time_micros = debug.cpu_expected_time_micros.clone();
-    let cpu_actual_time_micros = debug.cpu_actual_time_micros.clone();
-    let ppu_expected_time_micros = debug.ppu_expected_time_micros.clone();
-    let ppu_actual_time_micros = debug.ppu_actual_time_micros.clone();
+    let debug_info_cpu = DebugInfoCpu::new();
+    let debug_info_ppu = DebugInfoPpu::new();
 
-    let mut ppu = Ppu {
-        vram: gb.vram.clone(),
-        oam: gb.oam.clone(),
-        io_ports: gb.io_ports.clone(),
-        screen: gb.screen.clone(),
-        ime: gb.ime.clone(),
-        interrupt_received: Arc::clone(&gb.interrupt_received),
-        palette: config.palette,
-    };
-    thread::Builder::new().name("ppu".into()).spawn(move || { 
-        run_ppu(&mut ppu, ppu_expected_time_micros, ppu_actual_time_micros);
-    }).expect("Failed to create ppu thread");
+    {
+        let mut ppu = Ppu {
+            vram: gb.vram.clone(),
+            oam: gb.oam.clone(),
+            io_ports: gb.io_ports.clone(),
+            screen: gb.screen.clone(),
+            ime: gb.ime.clone(),
+            interrupt_received: Arc::clone(&gb.interrupt_received),
+            palette: config.palette,
+        };
+        let debug = debug_info_ppu.clone();
 
-    thread::Builder::new().name("cpu".into()).spawn(move || {
-        run_cpu(&mut gb, cpu_expected_time_micros, cpu_actual_time_micros);
-    }).expect("Failed to create cpu thread");
+        thread::Builder::new().name("ppu".into()).spawn(move || { 
+            run_ppu(&mut ppu, debug);
+        }).expect("Failed to create ppu thread");
+    }
+
+    {
+        let debug = debug_info_cpu.clone();
+
+        thread::Builder::new().name("cpu".into()).spawn(move || {
+            run_cpu(&mut gb, debug);
+        }).expect("Failed to create cpu thread");
+    }
 
     // SDL code
-
-    const SCALE: u32 = 4;
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let window = video_subsystem
-        .window("gameboy emulator", 160 * SCALE, 144 * SCALE)
+        .window("gameboy emulator", 160 * config.scale, 144 * config.scale)
         .position_centered()
         .opengl()
         .build()
@@ -131,22 +150,57 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::KeyDown { keycode: Some(kc), .. } => {
-                    let scx = io_ports_sdl.read(IO_SCX);
-                    let scy = io_ports_sdl.read(IO_SCY);
                     match kc {
-                        Keycode::Right => io_ports_sdl.write(IO_SCX, (Wrapping(scx) - Wrapping(1)).0),
-                        Keycode::Left => io_ports_sdl.write(IO_SCX, (Wrapping(scx) + Wrapping(1)).0),
-                        Keycode::Up => io_ports_sdl.write(IO_SCY, (Wrapping(scy) + Wrapping(1)).0),
-                        Keycode::Down => io_ports_sdl.write(IO_SCY, (Wrapping(scy) - Wrapping(1)).0),
                         Keycode::L => io_ports_sdl.xor(IO_LCDC, LCDC_ON), // Toggle LDC on/off
                         Keycode::S => io_ports_sdl.xor(IO_LCDC, LCDC_OBJ_DISP), // Toggle sprites
                         Keycode::B => io_ports_sdl.xor(IO_LCDC, LCDC_BG_DISP), // Toggle background
                         Keycode::W => io_ports_sdl.xor(IO_LCDC, LCDC_WIN_DISP), // Toggle background
-                        Keycode::Q | Keycode::Escape => break 'running,
                         _ => {}
                     };
                 },
                 _ => {}
+            }
+        }
+
+        let mut cont_data = 0b1111_1111;
+        let kb_state = event_pump.keyboard_state();
+        if kb_state.is_scancode_pressed(Scancode::Right) {
+            cont_data &= !CONTROLLER_DATA_RIGHT;
+        }
+        if kb_state.is_scancode_pressed(Scancode::Left) {
+            cont_data &= !CONTROLLER_DATA_LEFT;
+        }
+        if kb_state.is_scancode_pressed(Scancode::Up) {
+            cont_data &= !CONTROLLER_DATA_UP;
+        }
+        if kb_state.is_scancode_pressed(Scancode::Down) {
+            cont_data &= !CONTROLLER_DATA_DOWN;
+        }
+        if kb_state.is_scancode_pressed(Scancode::X) {
+            cont_data &= !CONTROLLER_DATA_A;
+        }
+        if kb_state.is_scancode_pressed(Scancode::Z) {
+            cont_data &= !CONTROLLER_DATA_B;
+        }
+        if kb_state.is_scancode_pressed(Scancode::A) {
+            cont_data &= !CONTROLLER_DATA_SE;
+        }
+        if kb_state.is_scancode_pressed(Scancode::S) {
+            cont_data &= !CONTROLLER_DATA_ST;
+        }
+        let prev_p1_input = io_ports_sdl.read(IO_P1) & P1_IN;
+        controller_data_sdl.store(cont_data, Ordering::Relaxed);
+        let curr_p1_input = io_ports_sdl.read(IO_P1) & P1_IN;
+        if ime_sdl.load(Ordering::Relaxed) && io_ports_sdl.read(IO_IE) & P1_NEG_EDGE > 0 && prev_p1_input ^ curr_p1_input != 0 {
+            for i in 0..4 {
+                if prev_p1_input >> i == 1 && curr_p1_input >> i == 0 {
+                    io_ports_sdl.or(IO_IF, P1_NEG_EDGE);
+                    let (mutex, cvar) = &*interrupt_received_sdl;
+                    let mut interrupted = mutex.lock().unwrap();
+                    *interrupted = true;
+                    cvar.notify_one();
+                    break;
+                }
             }
         }
 
@@ -165,10 +219,10 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         canvas.present();
 
         if config.debug_show_speed && frames % 30 == 0 {
-            let cpu_expected = debug.cpu_expected_time_micros.load(Ordering::Relaxed);
-            let cpu_actual = debug.cpu_actual_time_micros.load(Ordering::Relaxed);
-            let ppu_expected = debug.ppu_expected_time_micros.load(Ordering::Relaxed);
-            let ppu_actual = debug.ppu_actual_time_micros.load(Ordering::Relaxed);
+            let cpu_expected = debug_info_cpu.expected_time_micros.load(Ordering::Relaxed);
+            let cpu_actual = debug_info_cpu.actual_time_micros.load(Ordering::Relaxed);
+            let ppu_expected = debug_info_ppu.expected_time_micros.load(Ordering::Relaxed);
+            let ppu_actual = debug_info_ppu.actual_time_micros.load(Ordering::Relaxed);
             println!("CPU: {}/{} ({:.4}%)", cpu_actual, cpu_expected, (cpu_actual as f64 / cpu_expected as f64) * 100.0);
             println!("PPU: {}/{} ({:.4}%)", ppu_actual, ppu_expected, (ppu_actual as f64 / ppu_expected as f64) * 100.0);
         }
@@ -353,62 +407,3 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
 //    }
 //}
 //
-//#[derive(Debug)]
-//enum DebugCmd {
-//    Step,
-//    Registers,
-//    View(u16, u16),
-//}
-//
-//impl DebugCmd {
-//    fn new(cmd: &str) -> Result<DebugCmd, &str> {
-//        let cmd = cmd.trim();
-//        if cmd == "" {
-//            return Result::Ok(DebugCmd::Step);
-//        }
-//        if cmd == "r" {
-//            return Result::Ok(DebugCmd::Registers);
-//        }
-//        if cmd.starts_with("v ") || cmd.starts_with("view ") {
-//            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
-//            if args.contains("+") {
-//                let args: Vec<&str> = args.split("+").collect();
-//                let start = parse_num(&args[0]).expect("Failed to parse start address");
-//                let offset = parse_num(&args[1]).expect("Failed to parse offset");
-//                return Result::Ok(DebugCmd::View(start, start + offset));
-//            } else if args.contains("-") {
-//                let args: Vec<&str> = args.split("-").collect();
-//                let start = parse_num(&args[0]).expect("Failed to parse start address");
-//                let end = parse_num(&args[1]).expect("Failed to parse end address");
-//                return Result::Ok(DebugCmd::View(start, end));
-//            } else {
-//                let start = parse_num(&args).expect("Failed to parse start address");
-//                return Result::Ok(DebugCmd::View(start, start));
-//            }
-//        }
-//        Result::Err("Unknown command")
-//    }
-//
-//    fn run(gb: &mut Gameboy, mnemonic: &HashMap<u16, &str>, cmd: &DebugCmd) {
-//        match *cmd {
-//            DebugCmd::View(start, end) => {
-//                let mut addr = start;
-//                while addr <= end {
-//                    println!("${:0>4X}: ${:0>2X} {}", 
-//                        addr, gb.read(addr), mnemonic.get(&addr).unwrap_or(&""));
-//                    addr += 1;
-//                }
-//            },
-//            DebugCmd::Registers => println!("{}", gb),
-//            _ => panic!("Invalid command {:?}", *cmd),
-//        }
-//    }
-//}
-//
-//fn parse_num(string: &str) -> Option<u16> {
-//    if string.starts_with("$") {
-//        u16::from_str_radix(&string[1..], 16).ok()
-//    } else { 
-//        u16::from_str_radix(&string, 10).ok()
-//    }
-//}

@@ -73,7 +73,7 @@ pub fn step(gb: &mut Gameboy) {
     gb.cycles += instr.num_cycles(gb);
 }
 
-fn decode(gb: &Gameboy) -> Instr {
+pub fn decode(gb: &Gameboy) -> Instr {
     let opcode = gb.read(gb.pc);
     // The bottom three bits of the opcode are used to indicate src reg for certain loads
     let src_reg = reg_encoding_to_src(opcode & 0b0000_0111);

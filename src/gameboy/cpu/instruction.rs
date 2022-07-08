@@ -395,4 +395,329 @@ impl Instr {
             Instr::Swap(_) => 2,
         }
     }
+
+    pub fn to_str(&self) -> String {
+        fn reg8_to_str(r: R) -> &'static str {
+            match r {
+                RA => "a",
+                RB => "b",
+                RC => "c",
+                RD => "d",
+                RE => "e",
+                RF => "f",
+                _ => panic!("Invalid 8-bit register {}", r),
+            }
+        }
+        fn reg16_to_str(rr: RR) -> &'static str {
+            match rr {
+                RAF => "af",
+                RBC => "bc",
+                RDE => "de",
+                RHL => "hl",
+                _ => panic!("Invalid 16-bit register {:?}", rr),
+            }
+        }
+        fn dst8(s: &mut String, dst: Dst8, inc_dec: Option<IncDec>) {
+            match dst {
+                Dst8::R8(r) => s.push_str(reg8_to_str(r)),
+                Dst8::Id(rr) => {
+                    s.push_str(format!("(${})", reg16_to_str(rr)).as_str());
+                    match inc_dec {
+                       Some(IncDec::Inc) => s.push('+'),
+                       Some(IncDec::Dec) => s.push('-'),
+                       _ => (),
+                    }
+                },
+                Dst8::IdFFRC => s.push_str("(C)"),
+                Dst8::IdFF(n) => s.push_str(format!("(${:0>2x})", n).as_str()),
+                Dst8::IdNN(nn) => s.push_str(format!("(${:0>4x})", nn).as_str()),
+            }
+        }
+        fn src8(s: &mut String, src: Src8, inc_dec: Option<IncDec>) {
+            match src {
+                Src8::R8(r) => s.push_str(reg8_to_str(r)),
+                Src8::Id(rr) => {
+                    s.push_str(format!("(${})", reg16_to_str(rr)).as_str());
+                    match inc_dec {
+                       Some(IncDec::Inc) => s.push('+'),
+                       Some(IncDec::Dec) => s.push('-'),
+                       _ => (),
+                    }
+                },
+                Src8::IdFFRC => s.push_str("(C)"),
+                Src8::IdFF(n) => s.push_str(format!("(${:0>2x})", n).as_str()),
+                Src8::IdNN(nn) => s.push_str(format!("(${:0>4x})", nn).as_str()),
+                Src8::D8(n) => s.push_str(format!("${:0>2x}", n).as_str()),
+            }
+        }
+        fn dst16(s: &mut String, dst: Dst16) {
+            match dst {
+                Dst16::R16(rr) => s.push_str(reg16_to_str(rr)),
+                Dst16::RSP => s.push_str("sp"),
+                Dst16::IdNN(nn) => s.push_str(format!("(${:0>4x})", nn).as_str()),
+            }
+        }
+        fn src16(s: &mut String, src: Src16) {
+            match src {
+                Src16::R16(rr) => s.push_str(reg16_to_str(rr)),
+                Src16::RSP => s.push_str("sp"),
+                Src16::D16(nn) => s.push_str(format!("${:0>4x}", nn).as_str()),
+                Src16::SPD8(n) => s.push_str(format!("sp + ${:0>2x}", n).as_str()),
+            }
+        }
+        fn r8(s: &mut String, n: i8) {
+            s.push_str(format!("${:0>2x}", n).as_str());
+        }
+        fn cond(s: &mut String, c: Cond) {
+            match c {
+                Cond::Z => s.push('z'),
+                Cond::Nz => s.push_str("nz"),
+                Cond::C => s.push('c'),
+                Cond::Nc => s.push_str("nc"),
+            }
+        }
+
+        match *self {
+            Instr::Nop => String::from("nop"),
+            Instr::Stop => String::from("stop"),
+            Instr::Halt => String::from("halt"),
+            Instr::Di => String::from("di"),
+            Instr::Ei => String::from("ei"),
+            Instr::Ccf => String::from("ccf"),
+            Instr::Scf => String::from("scf"),
+            Instr::Daa => String::from("daa"),
+            Instr::Cpl => String::from("cpl"),
+            Instr::Ld(dst, src) => {
+                let mut s = String::from("ld");
+                match dst {
+                    Dst8::IdFFRC | Dst8::IdFF(_) => s.push('h'),
+                    _ => (),
+                };
+                match src {
+                    Src8::IdFFRC | Src8::IdFF(_) => s.push('h'),
+                    _ => (),
+                };
+                s.push(' ');
+                dst8(&mut s, dst, None);
+                s.push_str(", ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::LdInc(dst, src) => {
+                let mut s = String::from("ld ");
+                dst8(&mut s, dst, Some(IncDec::Inc));
+                s.push_str(", ");
+                src8(&mut s, src, Some(IncDec::Inc));
+                s
+            },
+            Instr::LdDec(dst, src) => {
+                let mut s = String::from("ld ");
+                dst8(&mut s, dst, Some(IncDec::Dec));
+                s.push_str(", ");
+                src8(&mut s, src, Some(IncDec::Dec));
+                s
+            },
+            Instr::Ld16(dst, src) => {
+                let mut s = String::from("ld ");
+                dst16(&mut s, dst);
+                s.push_str(", ");
+                src16(&mut s, src);
+                s
+            },
+            Instr::Push(rr) => {
+                let mut s = String::from("push ");
+                src16(&mut s, Src16::R16(rr));
+                s
+            },
+            Instr::Pop(rr) => {
+                let mut s = String::from("pop ");
+                src16(&mut s, Src16::R16(rr));
+                s
+            },
+            Instr::Inc(dst) => {
+                let mut s = String::from("inc ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Dec(dst) => {
+                let mut s = String::from("dec ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Add(src) => {
+                let mut s = String::from("add ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Adc(src) => {
+                let mut s = String::from("adc ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Sub(src) => {
+                let mut s = String::from("sub ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Sbc(src) => {
+                let mut s = String::from("sbc ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::And(src) => {
+                let mut s = String::from("and ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Xor(src) => {
+                let mut s = String::from("xor ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Or(src) => {
+                let mut s = String::from("or ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Cp(src) => {
+                let mut s = String::from("cp ");
+                src8(&mut s, src, None);
+                s
+            },
+            Instr::Add16HL(src) => {
+                let mut s = String::from("add hl, ");
+                src16(&mut s, src);
+                s
+            },
+            Instr::Add16SP(n) => {
+                let mut s = String::from("add sp, ");
+                r8(&mut s, n);
+                s
+            },
+            Instr::Inc16(dst) => {
+                let mut s = String::from("inc ");
+                dst16(&mut s, dst);
+                s
+            },
+            Instr::Dec16(dst) => {
+                let mut s = String::from("dec ");
+                dst16(&mut s, dst);
+                s
+            },
+            Instr::Jp(src) => {
+                let mut s = String::from("jp ");
+                src16(&mut s, src);
+                s
+            },
+            Instr::JpCC(c, nn) => {
+                let mut s = String::from("jp ");
+                cond(&mut s, c);
+                s.push_str(", ");
+                src16(&mut s, Src16::D16(nn));
+                s
+            },
+            Instr::Jr(n) => {
+                let mut s = String::from("jr ");
+                r8(&mut s, n);
+                s
+            },
+            Instr::JrCC(c, n) => {
+                let mut s = String::from("jr ");
+                cond(&mut s, c);
+                s.push_str(", ");
+                r8(&mut s, n);
+                s
+            },
+            Instr::Call(nn) => {
+                let mut s = String::from("call ");
+                src16(&mut s, Src16::D16(nn));
+                s
+            },
+            Instr::CallCC(c, nn) => {
+                let mut s = String::from("call ");
+                cond(&mut s, c);
+                s.push_str(", ");
+                src16(&mut s, Src16::D16(nn));
+                s
+            },
+            Instr::Ret => String::from("ret"),
+            Instr::RetCC(c) => {
+                let mut s = String::from("ret ");
+                cond(&mut s, c);
+                s
+            },
+            Instr::Reti => String::from("reti"),
+            Instr::Rst(n) => {
+                let mut s = String::from("rst ");
+                src8(&mut s, Src8::D8(n), None);
+                s
+            },
+            Instr::Rlca => String::from("rlca"),
+            Instr::Rla => String::from("rla"),
+            Instr::Rrca => String::from("rrca"),
+            Instr::Rra => String::from("rra"),
+            Instr::Rlc(dst) => {
+                let mut s = String::from("rlc ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Rrc(dst) => {
+                let mut s = String::from("rrc ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Rl(dst) => {
+                let mut s = String::from("rl ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Rr(dst) => {
+                let mut s = String::from("rr ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Sla(dst) => {
+                let mut s = String::from("sla ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Sra(dst) => {
+                let mut s = String::from("sra ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Srl(dst) => {
+                let mut s = String::from("srl ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Bit(n, dst) => {
+                let mut s = String::from("bit ");
+                s.push_str(format!("{}", n).as_str());
+                s.push_str(", ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Res(n, dst) => {
+                let mut s = String::from("res ");
+                s.push_str(format!("{}", n).as_str());
+                s.push_str(", ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Set(n, dst) => {
+                let mut s = String::from("set ");
+                s.push_str(format!("{}", n).as_str());
+                s.push_str(", ");
+                dst8(&mut s, dst, None);
+                s
+            },
+            Instr::Swap(dst) => {
+                let mut s = String::from("swap ");
+                dst8(&mut s, dst, None);
+                s
+            },
+        }
+    }
 }
+

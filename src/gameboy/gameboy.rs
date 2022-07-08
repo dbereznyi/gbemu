@@ -29,6 +29,7 @@ pub const FLAG_H: u8 = 0b00100000;
 pub const FLAG_C: u8 = 0b00010000;
 
 // IO port/register aliases, relative to 0xff00.
+pub const IO_P1: usize   = 0x00;
 pub const IO_IF: usize   = 0x0f;
 pub const IO_LCDC: usize = 0x40; 
 pub const IO_STAT: usize = 0x41;
@@ -44,6 +45,22 @@ pub const IO_WX: usize   = 0x4b;
 // In the memory map this is at 0xffff, but to simplify things internally we store this at the end
 // of the io_ports array
 pub const IO_IE: usize   = 0x4c;
+
+pub const P1_IN: u8      = 0b0000_1111;
+pub const P1_OUT: u8     = 0b0011_0000;
+pub const P1_P14_OUT: u8 = 0b0001_0000;
+pub const P1_P15_OUT: u8 = 0b0010_0000;
+
+pub const CONTROLLER_DATA_P14: u8   = 0b1111_0000;
+pub const CONTROLLER_DATA_P15: u8   = 0b0000_1111;
+pub const CONTROLLER_DATA_A: u8     = 0b0000_0001;
+pub const CONTROLLER_DATA_B: u8     = 0b0000_0010;
+pub const CONTROLLER_DATA_SE: u8    = 0b0000_0100;
+pub const CONTROLLER_DATA_ST: u8    = 0b0000_1000;
+pub const CONTROLLER_DATA_RIGHT: u8 = 0b0001_0000;
+pub const CONTROLLER_DATA_LEFT: u8  = 0b0010_0000;
+pub const CONTROLLER_DATA_UP: u8    = 0b0100_0000;
+pub const CONTROLLER_DATA_DOWN: u8  = 0b1000_0000;
 
 pub const LCDC_ON: u8           = 0b1000_0000;
 pub const LCDC_WIN_TILE_MAP: u8 = 0b0100_0000;
@@ -67,11 +84,11 @@ pub const STAT_MODE_OAM: u8      = 0b0000_0010;
 pub const STAT_MODE_TRANSFER: u8 = 0b0000_0011;
 
 // Interrupt flags, used for IF and IE registers.
-pub const VBLANK: u8    = 0b0000_0001;
-pub const LCDC: u8      = 0b0000_0010;
-pub const TIMER: u8     = 0b0000_0100;
-pub const SERIAL: u8    = 0b0000_1000;
-pub const HI_TO_LOW: u8 = 0b0001_0000;
+pub const VBLANK: u8      = 0b0000_0001;
+pub const LCDC: u8        = 0b0000_0010;
+pub const TIMER: u8       = 0b0000_0100;
+pub const SERIAL: u8      = 0b0000_1000;
+pub const P1_NEG_EDGE: u8 = 0b0001_0000;
 
 pub struct IoPorts {
     io_ports: [AtomicU8; 0x4d],
@@ -121,9 +138,14 @@ pub struct Gameboy {
     pub halted: Arc<AtomicBool>,
     pub stopped: Arc<AtomicBool>,
 
+    pub step_mode: bool,
+    pub breakpoints: Vec<u16>,
+
     /// CPU can wait on this variable to sleep until interrupted.
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
-
+    /// Which buttons are currently being pressed.
+    /// Like the actual Gameboy P1 register, 1 means not pressed and 0 means pressed.
+    pub controller_data: Arc<AtomicU8>,
     /// Pixel data to be drawn to the screen.
     pub screen: Arc<Mutex<[[(u8, u8, u8); 160]; 144]>>,
 }
@@ -145,6 +167,9 @@ impl Gameboy {
             hram: Box::new([0; 0x7f]),
             cartridge: cartridge,
 
+            step_mode: false,
+            breakpoints: vec!(),
+
             cycles: 0,
             pc: 0x0100, 
             sp: 0xfffe,
@@ -154,7 +179,7 @@ impl Gameboy {
             stopped: Arc::new(AtomicBool::new(false)),
 
             interrupt_received: Arc::new((Mutex::new(false), Condvar::new())),
-
+            controller_data: Arc::new(AtomicU8::new(0xff)),
             screen: Arc::new(Mutex::new([[(0,0,0); 160]; 144])),
         }
     }
@@ -185,7 +210,8 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff00..=0xff4b => {
-                self.io_ports.read((addr - 0xff00) as usize)
+                let port = (addr - 0xff00) as usize;
+                self.io_ports.read(port)
             },
             0xff4c..=0xff7f => {
                 panic!("Error: attempt to read from invalid memory")
@@ -225,7 +251,24 @@ impl Gameboy {
                 panic!("Error: attempt to read from invalid memory")
             },
             0xff00..=0xff4b => {
-                self.io_ports.write((addr - 0xff00) as usize, value)
+                let port = (addr - 0xff00) as usize;
+                match port {
+                    IO_P1 => {
+                        let output_select = value & P1_OUT;
+                        let cont_data = self.controller_data.load(Ordering::Relaxed);
+                        let output =
+                            if output_select & P1_P15_OUT == 0 {
+                                cont_data & CONTROLLER_DATA_P15
+                            } else if output_select & P1_P14_OUT == 0 {
+                                (cont_data & CONTROLLER_DATA_P14) >> 4
+                            } else {
+                                // TODO does P1 actually output 1s here if no output is selected?
+                                0b0000_1111
+                            };
+                        self.io_ports.write(IO_P1, output_select | output);
+                    },
+                    _ => self.io_ports.write(port, value),
+                }
             },
             0xff4c..=0xff7f => {
                 panic!("Error: attempt to read from invalid memory")
@@ -249,7 +292,8 @@ impl fmt::Display for Gameboy {
                 "Z: {:2}, N: {:2}, H: {:2}, C: {:2}\n",
                 "A: {:0>2X}, B: {:0>2X}, D: {:0>2X}, H: {:0>2X}\n",
                 "F: {:0>2X}, C: {:0>2X}, E: {:0>2X}, L: {:0>2X}\n",
-                "LY: {:0>2X}, LCDC: {:0>2X}, STAT: {:0>2X}",
+                "LY: {:0>2X}, LCDC: {:0>2X}, STAT: {:0>2X}\n",
+                "P1: {:0>2X},\n",
             ),
             self.pc, self.sp, self.cycles,
             (self.regs[RF] & FLAG_Z) >> 7, (self.regs[RF] & FLAG_N) >> 6,
@@ -257,6 +301,7 @@ impl fmt::Display for Gameboy {
             self.regs[RA], self.regs[RB], self.regs[RD], self.regs[RH],
             self.regs[RF], self.regs[RC], self.regs[RE], self.regs[RL],
             self.io_ports.read(IO_LY), self.io_ports.read(IO_LCDC), self.io_ports.read(IO_STAT),
+            self.io_ports.read(IO_P1),
         )
     }
 }

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use std::num::{Wrapping};
 use std::convert::TryInto;
 use crate::gameboy::gameboy::{*};
+use crate::gameboy::debug_info::{DebugInfoPpu};
 
 pub const PALETTE_GREY: [(u8,u8,u8); 4] = [(255,255,255), (127,127,127), (63,63,63), (0,0,0)];
 pub const PALETTE_RED: [(u8,u8,u8); 4] = [(255,0,0), (127,0,0), (63,0,0), (0,0,0)];
@@ -48,10 +49,7 @@ pub struct Ppu {
     pub palette: [(u8,u8,u8); 4],
 }
 
-pub fn run_ppu(
-    ppu: &mut Ppu,
-    ppu_actual_time_micros: Arc<AtomicU64>,
-    ppu_expected_time_micros: Arc<AtomicU64>) {
+pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
     let (mutex, cvar) = &*ppu.interrupt_received;
     let io_ports = &ppu.io_ports;
 
@@ -258,9 +256,7 @@ pub fn run_ppu(
             let int_on_hblank = io_ports.read(IO_STAT) & STAT_INT_M00 > 0;
             let int_on_lyc_incident = io_ports.read(IO_STAT) & STAT_INT_LYC > 0;
             let lyc_incident = io_ports.read(IO_STAT) & STAT_LYC_SET > 0;
-            if ppu.ime.load(Ordering::Relaxed)
-                && io_ports.read(IO_IE) & LCDC > 0 
-                && (int_on_hblank || (int_on_lyc_incident && lyc_incident)) {
+            if ppu.ime.load(Ordering::Relaxed) && io_ports.read(IO_IE) & LCDC > 0 && (int_on_hblank || (int_on_lyc_incident && lyc_incident)) {
                 io_ports.or(IO_IF, LCDC);
                 let mut interrupted = mutex.lock().unwrap();
                 *interrupted = true;
@@ -292,7 +288,7 @@ pub fn run_ppu(
         if expected > elapsed {
             thread::sleep(expected - elapsed);
         }
-        ppu_actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
-        ppu_expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
+        debug_info.actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
+        debug_info.expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
     }
 }

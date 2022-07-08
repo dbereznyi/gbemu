@@ -317,12 +317,14 @@ pub fn jr_cond(gb: &mut Gameboy, cond: Cond, offset: i8) {
 }
 
 pub fn call(gb: &mut Gameboy, addr: u16) {
+    gb.pc += 3;
     push_pc(gb);
     gb.pc = addr;
 }
 
 pub fn call_cond(gb: &mut Gameboy, cond: Cond, addr: u16) {
     if cond.check(gb) {
+        gb.pc += 3;
         push_pc(gb);
         gb.pc = addr;
     }
@@ -508,7 +510,7 @@ pub fn swap(gb: &mut Gameboy, dst: Dst8) {
 
 pub fn bit(gb: &mut Gameboy, bt: u8, dst: Dst8) {
     let value = dst.read(gb);
-    if (value >> bt) == 0 {
+    if (value & (1 << bt)) == 0 {
         gb.regs[RF] |= FLAG_Z;
     } else {
         gb.regs[RF] &= !FLAG_Z;
