@@ -1,4 +1,4 @@
-These are simple test ROMs that can be used to verify or debug various emulator features.
+These are simple test ROMs that can be used to verify or debug various emulator functionality.
 
 hello-world.gb
     Displays a fancy Hello World graphic to the screen.
@@ -11,3 +11,7 @@ window.gb
     the screen and 10 at the bottom of the screen.
     After copying tile and tile map data, enables LCDC Mode 00 interupts and then halts. On every HBlank,
     checks LY to see whether to enable or disable the window by using the LCDC window flag.
+
+controller.gb
+    Reads controller input every VBlank and updates corresponding tiles on the screen to indicate which
+    buttons are being pressed.
