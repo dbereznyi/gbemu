@@ -19,14 +19,16 @@ struct Config {
     pub scale: u32,
     pub palette: [(u8,u8,u8); 4],
     pub debug_show_speed: bool,
+    pub breakpoints: Vec<u16>,
 }
 
 impl Config {
-    pub fn new() -> Result<Self, i32> {
+    pub fn new() -> Result<Self, String> {
         let mut rom_filepath = String::from("roms/hello-world.gb");
         let mut scale = 4;
         let mut palette_str = String::from("grey");
         let mut debug_show_speed = false;
+        let mut breakpoints_str = String::from("");
 
         {
             let mut ap = ArgumentParser::new();
@@ -38,11 +40,14 @@ impl Config {
                 .add_option(&["-p", "--palette"], Store, "Configure color palette");
             ap.refer(&mut debug_show_speed)
                 .add_option(&["-d", "--debug-speed"], StoreTrue, "Write CPU and PPU speed to console");
-            ap.parse_args()?;
+            ap.refer(&mut breakpoints_str)
+                .add_option(&["-b", "--breakpoints"], Store, "List of addresses (in hexadecimal) to set as breakpoints for debugging, separated by commas");
+            ap.parse_args()
+                .map_err(|e| format!("Argument parsing failed with error code {e}"))?;
         }
 
         if scale < 1 {
-            println!("Minimum allowed scale factor is 1, clamping");
+            println!("Minimum allowed scale factor is 1, clamping.");
             scale = 1;
         }
 
@@ -52,16 +57,30 @@ impl Config {
             "green" => PALETTE_GREEN,
             "blue" => PALETTE_BLUE,
             _ => {
-                println!("Unknown palette '{}', defaulting to palette 'grey'.", palette_str);
+                println!("Unknown palette '{palette_str}', defaulting to palette 'grey'.");
                 PALETTE_GREY
             },
         };
+
+        let mut breakpoints = vec!();
+        for breakpoint in breakpoints_str.split(',') {
+            if breakpoint.is_empty() {
+                // Split returns a single empty string when the string being split is empty.
+                break;
+            }
+            let breakpoint = breakpoint.trim();
+            let breakpoint_u16 = u16::from_str_radix(breakpoint, 16)
+                .map_err(|e| format!("Failed to parse breakpoint {breakpoint}: {e}"))?;
+            println!("Added breakpoint ${breakpoint_u16:0>4x}");
+            breakpoints.push(breakpoint_u16);
+        }
 
         let config = Self {
             rom_filepath,
             scale,
             palette,
             debug_show_speed,
+            breakpoints,
         };
 
         Ok(config)
@@ -69,8 +88,7 @@ impl Config {
 }
 
 fn main() -> Result<(), String> {
-    let config = Config::new()
-        .map_err(|e| e.to_string())?;
+    let config = Config::new()?;
     let cart_bytes = fs::read(&config.rom_filepath)
         .expect("Failed to open ROM file");
     let cart = load_cartridge(&cart_bytes)
@@ -81,8 +99,9 @@ fn main() -> Result<(), String> {
 fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
     let mut gb = Gameboy::new(cartridge);
 
-    // TODO support specifying breakpoints in the command-line args
-    //gb.breakpoints.push(0x01d3);
+    for breakpoint in &config.breakpoints {
+        gb.breakpoints.push(*breakpoint);
+    }
 
     //load_test_data(&mut gb);
 
