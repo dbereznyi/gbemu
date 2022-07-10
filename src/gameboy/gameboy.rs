@@ -154,6 +154,7 @@ impl Gameboy {
     pub fn new(cartridge: Cartridge) -> Gameboy {
         const ZERO_AU8: AtomicU8 = AtomicU8::new(0);
         let io_ports = IoPorts::new([ZERO_AU8; 0x4d]);
+        io_ports.write(IO_P1, 0xcf); // not sure if this is accurate but BGB seems to do it
         io_ports.write(IO_LCDC, 0x91);
         io_ports.write(IO_BGP, 0xfc);
         io_ports.write(IO_OBP0, 0xff);

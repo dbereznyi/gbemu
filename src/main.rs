@@ -188,12 +188,13 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         if kb_state.is_scancode_pressed(Scancode::S) {
             cont_data &= !CONTROLLER_DATA_ST;
         }
-        let prev_p1_input = io_ports_sdl.read(IO_P1) & P1_IN;
+        let prev_cont_data = controller_data_sdl.load(Ordering::Relaxed);
         controller_data_sdl.store(cont_data, Ordering::Relaxed);
-        let curr_p1_input = io_ports_sdl.read(IO_P1) & P1_IN;
-        if ime_sdl.load(Ordering::Relaxed) && io_ports_sdl.read(IO_IE) & P1_NEG_EDGE > 0 && prev_p1_input ^ curr_p1_input != 0 {
-            for i in 0..4 {
-                if prev_p1_input >> i == 1 && curr_p1_input >> i == 0 {
+        // TODO Technically we should only trigger this interrupt when a low signal lasts for 2^4 *
+        // 4MHz = 4 microsecs.
+        if ime_sdl.load(Ordering::Relaxed) && io_ports_sdl.read(IO_IE) & P1_NEG_EDGE > 0 {
+            for i in 0..8 {
+                if prev_cont_data & (1 << i) > 0 && cont_data & (1 << i) == 0 {
                     io_ports_sdl.or(IO_IF, P1_NEG_EDGE);
                     let (mutex, cvar) = &*interrupt_received_sdl;
                     let mut interrupted = mutex.lock().unwrap();
@@ -363,47 +364,3 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
 //
 //    gb.halted.store(true, Ordering::Relaxed);
 //}
-
-//fn run_test_program(gb: &mut Gameboy, program: Vec<(&str, Vec<u8>)>) {
-//    let mut addr_to_mnemonic = HashMap::new();
-//
-//    // Load program
-//    let mut addr = 0x0100;
-//    for (mnemonic, bytes) in program.iter() {
-//        addr_to_mnemonic.insert(addr, *mnemonic);
-//        for byte in bytes.iter() {
-//            gb.write(addr, *byte);
-//            addr += 1;
-//        }
-//    }
-//    let program_end = addr;
-//
-//    println!("{:?}", addr_to_mnemonic);
-//    
-//    // Execute program
-//    println!("==> initial state\n{}\n", gb);
-//    let stdin = io::stdin();
-//    let mut stdout = io::stdout();
-//    while gb.pc < program_end {
-//        let mnemonic = addr_to_mnemonic.get(&gb.pc).unwrap();
-//        loop {
-//            print!("BREAK **** {}\n", mnemonic);
-//            print!("> ");
-//            stdout.flush().unwrap();
-//            let mut line = String::new();
-//            stdin.read_line(&mut line).unwrap();
-//            let cmd = DebugCmd::new(&line);
-//            match cmd {
-//                Result::Ok(cmd) => {
-//                    if let DebugCmd::Step = cmd {
-//                        break;
-//                    }
-//                    DebugCmd::run(gb, &addr_to_mnemonic, &cmd)
-//                },
-//                Result::Err(err) => println!("{}", err),
-//            }
-//        }
-//        step(gb);
-//    }
-//}
-//
