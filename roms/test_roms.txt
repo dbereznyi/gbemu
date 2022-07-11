@@ -15,3 +15,11 @@ window.gb
 controller.gb
     Reads controller input every VBlank and updates corresponding tiles on the screen to indicate which
     buttons are being pressed.
+
+p1_neg_edge.gb
+    Initializes VRAM to all blank (white) tiles then enables P1 negative edge interrupt. On each interrupt,
+    inverts the background palette (i.e. toggles color 0 between white and black).
+    Effect is that on every input press, a single interrupt is generated. However, it seems that different
+    emulators handle this slightly differently, with some introducing noise causing the interrupt to trigger
+    multiple times per input press.
+
