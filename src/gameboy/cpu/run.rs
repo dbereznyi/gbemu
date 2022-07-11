@@ -1,4 +1,5 @@
 use std::thread;
+use std::fmt;
 use std::time::{Duration, Instant};
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -55,15 +56,15 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
             *interrupted = false;
         }
 
-        step(gb);
-
         if gb.breakpoints.contains(&gb.pc) {
             gb.step_mode = true;
         }
 
         if gb.step_mode {
             loop {
-                println!("==> ${:0>4X}: {}", gb.pc, decode(gb).to_str());
+                println!("==> ${:0>4X}: {}",
+                         gb.pc, 
+                         decode(gb, gb.pc).map(|i| i.to_string()).unwrap_or("".to_string()));
                 print!("> ");
                 stdout.flush().unwrap();
                 let mut line = String::new();
@@ -77,9 +78,9 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
                     Result::Err(err) => eprintln!("{}", err),
                 }
             }
-
-            continue;
         }
+
+        step(gb).unwrap();
 
         let elapsed = cpu_start.elapsed();
         let expected = Duration::from_micros(gb.cycles); 

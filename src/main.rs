@@ -103,8 +103,6 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         gb.breakpoints.push(*breakpoint);
     }
 
-    //load_test_data(&mut gb);
-
     let io_ports_sdl = gb.io_ports.clone();
     let ime_sdl = gb.ime.clone();
     let controller_data_sdl = gb.controller_data.clone();

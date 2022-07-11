@@ -1,3 +1,4 @@
+use std::fmt;
 use std::num::Wrapping;
 use crate::gameboy::gameboy::{*};
 
@@ -396,7 +397,7 @@ impl Instr {
         }
     }
 
-    pub fn to_str(&self) -> String {
+    pub fn to_string(&self) -> String {
         fn reg8_to_str(r: R) -> &'static str {
             match r {
                 RA => "a",
@@ -721,3 +722,8 @@ impl Instr {
     }
 }
 
+impl fmt::Display for Instr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}

@@ -1,0 +1,90 @@
+INCLUDE "hardware.inc"
+
+SECTION "P1NegEdge", ROM0[$0060]
+    jp P1NegEdgeInterrupt
+
+SECTION "Header", ROM0[$100]
+	jp EntryPoint
+
+	ds $150 - @, 0 ; Make room for the header
+
+EntryPoint:
+	; Shut down audio circuitry
+	ld a, 0
+	ld [rNR52], a
+
+	; Do not turn the LCD off outside of VBlank
+WaitVBlank:
+	ld a, [rLY]
+	cp 144
+	jp c, WaitVBlank
+
+	; Turn the LCD off
+	ld a, 0
+	ld [rLCDC], a
+    
+
+	; Set tile data to all blank tiles
+	ld hl, $9000
+	ld bc, $1000
+CopyTiles:
+	ld a, 0
+	ld [hli], a
+	dec bc
+	ld a, b
+	or a, c
+	jp nz, CopyTiles
+
+	; Set tilemap to all tile #0
+	ld hl, $9800
+	ld bc, $400
+CopyTilemap:
+    ld a, 0
+	ld [hli], a
+	dec bc
+	ld a, b
+	or a, c
+	jp nz, CopyTilemap
+
+	; Turn the LCD on
+	ld a, LCDCF_ON | LCDCF_BGON
+	ld [rLCDC], a
+	; During the first (blank) frame, initialize display registers
+	ld a, %11100100
+	ld [rBGP], a
+    ; Clear any pending interrupts
+    xor a
+    ld [rIF], a
+    ; Enable P1 negative edge interrupts
+    ld a, IEF_HILO
+    ld [rIE], a
+    ei
+
+.haltLoop
+    halt
+    nop
+    jp .haltLoop
+
+P1NegEdgeInterrupt:
+    push af
+    push bc
+    push de
+    push hl
+
+    ; Toggle the background color
+    ld a, [rBGP]
+    bit 0, a
+    jp z, .whiteBg
+    ld a, %11100100
+    ld [rBGP], a
+    jp .end
+.whiteBg
+    ld a, %11100111
+    ld [rBGP], a
+
+.end
+    pop hl
+    pop de
+    pop bc
+    pop af
+    reti

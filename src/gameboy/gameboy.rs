@@ -208,14 +208,16 @@ impl Gameboy {
                 oam[(addr - 0xfe00) as usize]
             },
             0xfea0..=0xfeff => {
-                panic!("Error: attempt to read from invalid memory")
+                println!("Warning: attempt to read from invalid memory ${addr:0>4x}");
+                0x00
             },
             0xff00..=0xff4b => {
                 let port = (addr - 0xff00) as usize;
                 self.io_ports.read(port)
             },
             0xff4c..=0xff7f => {
-                panic!("Error: attempt to read from invalid memory")
+                println!("Warning: attempt to read from invalid memory ${addr:0>4x}");
+                0x00
             },
             0xff80..=0xfffe => {
                 self.hram[(addr - 0xff80) as usize]
@@ -249,7 +251,7 @@ impl Gameboy {
                 oam[(addr - 0xfe00) as usize] = value
             },
             0xfea0..=0xfeff => {
-                panic!("Error: attempt to read from invalid memory")
+                println!("Warning: attempt to write to invalid memory ${addr:0>4x}")
             },
             0xff00..=0xff4b => {
                 let port = (addr - 0xff00) as usize;
@@ -272,7 +274,7 @@ impl Gameboy {
                 }
             },
             0xff4c..=0xff7f => {
-                panic!("Error: attempt to read from invalid memory")
+                println!("Warning: attempt to write to invalid memory ${addr:0>4x}")
             },
             0xff80..=0xfffe => {
                 self.hram[(addr - 0xff80) as usize] = value
@@ -294,7 +296,7 @@ impl fmt::Display for Gameboy {
                 "A: {:0>2X}, B: {:0>2X}, D: {:0>2X}, H: {:0>2X}\n",
                 "F: {:0>2X}, C: {:0>2X}, E: {:0>2X}, L: {:0>2X}\n",
                 "LY: {:0>2X}, LCDC: {:0>2X}, STAT: {:0>2X}\n",
-                "P1: {:0>2X},\n",
+                "P1: {:0>2X}",
             ),
             self.pc, self.sp, self.cycles,
             (self.regs[RF] & FLAG_Z) >> 7, (self.regs[RF] & FLAG_N) >> 6,
