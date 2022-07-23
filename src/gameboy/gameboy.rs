@@ -30,6 +30,9 @@ pub const FLAG_C: u8 = 0b00010000;
 
 // IO port/register aliases, relative to 0xff00.
 pub const IO_P1: usize   = 0x00;
+pub const IO_TIMA: usize = 0x05;
+pub const IO_TMA: usize  = 0x06;
+pub const IO_TAC: usize  = 0x07;
 pub const IO_IF: usize   = 0x0f;
 pub const IO_LCDC: usize = 0x40; 
 pub const IO_STAT: usize = 0x41;
@@ -50,6 +53,9 @@ pub const P1_IN: u8      = 0b0000_1111;
 pub const P1_OUT: u8     = 0b0011_0000;
 pub const P1_P14_OUT: u8 = 0b0001_0000;
 pub const P1_P15_OUT: u8 = 0b0010_0000;
+
+pub const TAC_CLOCK_SELECT: u8 = 0b0000_0011;
+pub const TAC_ENABLE: u8       = 0b0000_0100;
 
 pub const CONTROLLER_DATA_P14: u8   = 0b1111_0000;
 pub const CONTROLLER_DATA_P15: u8   = 0b0000_1111;
@@ -84,11 +90,11 @@ pub const STAT_MODE_OAM: u8      = 0b0000_0010;
 pub const STAT_MODE_TRANSFER: u8 = 0b0000_0011;
 
 // Interrupt flags, used for IF and IE registers.
-pub const VBLANK: u8      = 0b0000_0001;
-pub const LCDC: u8        = 0b0000_0010;
-pub const TIMER: u8       = 0b0000_0100;
-pub const SERIAL: u8      = 0b0000_1000;
-pub const P1_NEG_EDGE: u8 = 0b0001_0000;
+pub const INT_VBLANK: u8      = 0b0000_0001;
+pub const INT_LCDC: u8        = 0b0000_0010;
+pub const INT_TIMER: u8       = 0b0000_0100;
+pub const INT_SERIAL: u8      = 0b0000_1000;
+pub const INT_HILO: u8        = 0b0001_0000;
 
 pub struct IoPorts {
     io_ports: [AtomicU8; 0x4d],
@@ -120,6 +126,10 @@ impl IoPorts {
     pub fn xor(&self, port: usize, value: u8) {
         self.io_ports[port].fetch_xor(value, Ordering::Relaxed);
     }
+
+    pub fn add(&self, port: usize, value: u8) {
+        self.io_ports[port].fetch_add(value, Ordering::Relaxed);
+    }
 }
 
 pub struct Gameboy {
@@ -143,6 +153,8 @@ pub struct Gameboy {
 
     /// CPU can wait on this variable to sleep until interrupted.
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
+    /// Timer can wait on this variable to sleep until timer is enabled.
+    pub timer_enabled: Arc<(Mutex<bool>, Condvar)>,
     /// Which buttons are currently being pressed.
     /// Like the actual Gameboy P1 register, 1 means not pressed and 0 means pressed.
     pub controller_data: Arc<AtomicU8>,
@@ -151,7 +163,7 @@ pub struct Gameboy {
 }
 
 impl Gameboy {
-    pub fn new(cartridge: Cartridge) -> Gameboy {
+    pub fn new(cartridge: Cartridge) -> Self {
         const ZERO_AU8: AtomicU8 = AtomicU8::new(0);
         let io_ports = IoPorts::new([ZERO_AU8; 0x4d]);
         io_ports.write(IO_P1, 0xcf); // not sure if this is accurate but BGB seems to do it
@@ -160,7 +172,7 @@ impl Gameboy {
         io_ports.write(IO_OBP0, 0xff);
         io_ports.write(IO_OBP1, 0xff);
 
-        Gameboy {
+        Self {
             wram: Box::new([0; 0x2000]),
             vram: Arc::new(Mutex::new([0; 0x2000])),
             oam: Arc::new(Mutex::new([0; 0xa0])),
@@ -180,6 +192,7 @@ impl Gameboy {
             stopped: Arc::new(AtomicBool::new(false)),
 
             interrupt_received: Arc::new((Mutex::new(false), Condvar::new())),
+            timer_enabled: Arc::new((Mutex::new(false), Condvar::new())),
             controller_data: Arc::new(AtomicU8::new(0xff)),
             screen: Arc::new(Mutex::new([[(0,0,0); 160]; 144])),
         }
@@ -268,7 +281,18 @@ impl Gameboy {
                                 // TODO does P1 actually output 1s here if no output is selected?
                                 0b0000_1111
                             };
+
                         self.io_ports.write(IO_P1, output_select | output);
+                    },
+                    IO_TAC => {
+                        self.io_ports.write(IO_TAC, value);
+
+                        if value & TAC_ENABLE > 0 {
+                            let (mutex, cvar) = &*self.timer_enabled;
+                            let mut enabled = mutex.lock().unwrap();
+                            *enabled = true;
+                            cvar.notify_one();
+                        }
                     },
                     _ => self.io_ports.write(port, value),
                 }

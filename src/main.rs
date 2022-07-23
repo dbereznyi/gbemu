@@ -129,6 +129,16 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         }).expect("Failed to create ppu thread");
     }
 
+    let mut timer = Timer {
+        io_ports: gb.io_ports.clone(),
+        ime: gb.ime.clone(),
+        interrupt_received: Arc::clone(&gb.interrupt_received),
+        timer_enabled: Arc::clone(&gb.timer_enabled),
+    };
+    thread::Builder::new().name("timer".into()).spawn(move || {
+        run_timer(&mut timer);
+    }).expect("Failed to create timer thread");
+
     {
         let debug = debug_info_cpu.clone();
 
@@ -208,11 +218,12 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         let prev_cont_data = controller_data_sdl.load(Ordering::Relaxed);
         controller_data_sdl.store(cont_data, Ordering::Relaxed);
         // TODO Technically we should only trigger this interrupt when a low signal lasts for 2^4 *
-        // 4MHz = 4 microsecs.
-        if ime_sdl.load(Ordering::Relaxed) && io_ports_sdl.read(IO_IE) & P1_NEG_EDGE > 0 {
+        // 4MHz = 4 microsecs. We currently poll 60 times per second, which is once every ~16,666 microseconds.
+        // If we need more sensitive polling, could move controller handling to its own thread.
+        if ime_sdl.load(Ordering::Relaxed) && io_ports_sdl.read(IO_IE) & INT_HILO > 0 {
             for i in 0..8 {
                 if prev_cont_data & (1 << i) > 0 && cont_data & (1 << i) == 0 {
-                    io_ports_sdl.or(IO_IF, P1_NEG_EDGE);
+                    io_ports_sdl.or(IO_IF, INT_HILO);
                     let (mutex, cvar) = &*interrupt_received_sdl;
                     let mut interrupted = mutex.lock().unwrap();
                     *interrupted = true;

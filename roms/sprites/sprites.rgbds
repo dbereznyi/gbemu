@@ -1,0 +1,266 @@
+INCLUDE "hardware.inc"
+
+SECTION "VBlank", ROM0[$0040]
+    jp VBlank
+
+SECTION "Header", ROM0[$100]
+	jp EntryPoint
+
+	ds $150 - @, 0 ; Make room for the header
+
+EntryPoint:
+	; Shut down audio circuitry
+	ld a, 0
+	ld [rNR52], a
+
+	; Do not turn the LCD off outside of VBlank
+WaitVBlank:
+	ld a, [rLY]
+	cp 144
+	jp c, WaitVBlank
+
+	; Turn the LCD off
+	ld a, 0
+	ld [rLCDC], a
+
+    ld hl, $8000
+    ld bc, $2000
+ClearVRAM:
+    ld a, 0
+    ld [hli], a
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, ClearVRAM
+
+    ld hl, $fe00
+    ld bc, 160
+ClearOAM:
+    ld a, 0
+    ld [hli], a
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, ClearOAM
+
+    ld de, Tiles
+    ld hl, $8000
+    ld bc, TilesEnd - Tiles
+CopyTiles:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, CopyTiles
+
+    ld de, SpriteAttrs
+    ld hl, $fe00
+    ld bc, SpriteAttrsEnd - SpriteAttrs
+CopySpriteAttrs:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, CopySpriteAttrs
+
+	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_OBJON | LCDCF_BGON
+	ld [rLCDC], a
+
+	ld a, %11100100
+	ld [rBGP], a
+    ld [rOBP0], a
+    ld a, %01110000 ; inverted palette, to make overlapping sprites stand out
+    ld [rOBP1], a
+
+    ld a, IEF_VBLANK
+    ld [rIE], a
+    
+    ei
+
+.haltLoop
+    halt
+    nop
+    jp .haltLoop
+
+VBlank:
+    push af
+    push bc
+    push de
+    push hl
+
+    ; TODO
+
+    pop hl
+    pop de
+    pop bc
+    pop af
+    reti
+
+Tiles:
+    ; blank tile
+    db $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, 
+    ; sprite graphic #1
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #2
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #3
+    dw `22222222
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #4
+    dw `22222222
+    dw `23333332
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #5
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #6
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #7
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #8
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    dw `22222222
+    ; sprite graphic #9
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    dw `23333332
+    ; sprite graphic #10
+    dw `22222222
+    dw `23333332
+    dw `23333332
+    dw `23322332
+    dw `23322332
+    dw `23333332
+    dw `23333332
+    dw `22222222
+    ; sprite graphic #11
+    dw `33333333
+    dw `33333333
+    dw `33333333
+    dw `33333333
+    dw `33333333
+    dw `33333333
+    dw `33333333
+    dw `33333333
+TilesEnd:
+
+DEF SPRITE_START EQU 10
+DEF SPRITE_OFFSET EQU 4
+
+SpriteAttrs:
+    ; Sprite #1
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*0,   ; x
+    db 1,       ; tile number
+    db 0,       ; flags
+    ; Sprite #2
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*1,  ; x
+    db 2,  ; tile number
+    db OAMF_PAL1,  ; flags
+    ; Sprite #3
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*2,  ; x
+    db 3,  ; tile number
+    db 0,  ; flags
+    ; Sprite #4
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*3,  ; x
+    db 4,  ; tile number
+    db OAMF_PAL1,  ; flags
+    ; Sprite #5
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*4,  ; x
+    db 5,  ; tile number
+    db 0,  ; flags
+    ; Sprite #6
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*5,  ; x
+    db 6,  ; tile number
+    db OAMF_PAL1,  ; flags
+    ; Sprite #7
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*6,  ; x
+    db 7,  ; tile number
+    db 0,  ; flags
+    ; Sprite #8
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*7,  ; x
+    db 8,  ; tile number
+    db OAMF_PAL1,  ; flags
+    ; Sprite #9
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*8,  ; x
+    db 9,  ; tile number
+    db 0,  ; flags
+    ; Sprite #10
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*9,  ; x
+    db 10,  ; tile number
+    db OAMF_PAL1,  ; flags
+    ; Sprite #11
+    db 16 + 60, ; y
+    db SPRITE_START + SPRITE_OFFSET*10,  ; x
+    db 11,  ; tile number
+    db 0,  ; flags
+SpriteAttrsEnd:

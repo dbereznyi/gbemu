@@ -16,9 +16,6 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
     let cpu_start = Instant::now();
 
     loop {
-        // If CPU is halted, just wait until an interrupt wakes us up.
-        // CPU will only be interrupted if IME is set and corresponding IE bit is set,
-        // so we will always get an interrupt we can process from this.
         if gb.halted.load(Ordering::Relaxed) {
             let (mutex, cvar) = &*gb.interrupt_received;
             let mut interrupted = mutex.lock().unwrap();
@@ -33,21 +30,21 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
         if gb.ime.load(Ordering::Relaxed) && io_if > 0 {
             push_pc(gb);
 
-            if io_if & VBLANK > 0 {
+            if io_if & INT_VBLANK > 0 {
                 gb.pc = 0x0040;
-                gb.io_ports.and(IO_IF, !VBLANK);
-            } else if io_if & LCDC > 0 {
+                gb.io_ports.and(IO_IF, !INT_VBLANK);
+            } else if io_if & INT_LCDC > 0 {
                 gb.pc = 0x0048;
-                gb.io_ports.and(IO_IF, !LCDC);
-            } else if io_if & TIMER > 0 {
+                gb.io_ports.and(IO_IF, !INT_LCDC);
+            } else if io_if & INT_TIMER > 0 {
                 gb.pc = 0x0050;
-                gb.io_ports.and(IO_IF, !TIMER);
-            } else if io_if & SERIAL > 0 {
+                gb.io_ports.and(IO_IF, !INT_TIMER);
+            } else if io_if & INT_SERIAL > 0 {
                 gb.pc = 0x0058;
-                gb.io_ports.and(IO_IF, !SERIAL);
-            } else if io_if & P1_NEG_EDGE > 0 {
+                gb.io_ports.and(IO_IF, !INT_SERIAL);
+            } else if io_if & INT_HILO > 0 {
                 gb.pc = 0x0060;
-                gb.io_ports.and(IO_IF, !P1_NEG_EDGE);
+                gb.io_ports.and(IO_IF, !INT_HILO);
             }
 
             gb.ime.store(false, Ordering::Relaxed);
@@ -87,6 +84,8 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
         if expected > elapsed {
             thread::sleep(expected - elapsed);
         }
+        // TODO This doesn't really work well when the CPU is halted. Need to do something a bit
+        // different.
         debug_info.actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
         debug_info.expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
     }

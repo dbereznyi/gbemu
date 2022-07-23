@@ -21,6 +21,7 @@ const OBJ_Y_FLIP: u8   = 0b0100_0000;
 const OBJ_X_FLIP: u8   = 0b0010_0000;
 const OBJ_PALETTE: u8  = 0b0001_0000;
 
+#[derive(Debug, Copy, Clone)]
 struct ObjAttr {
     pub y: u8,
     pub x: u8,
@@ -53,6 +54,11 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
     let (mutex, cvar) = &*ppu.interrupt_received;
     let io_ports = &ppu.io_ports;
 
+    let mut obj_attrs: Vec<(usize, ObjAttr)> = Vec::with_capacity(40);
+    // This is to get around having to init the vec with dummy data that we just overwrite in the
+    // first run of the PPU.
+    unsafe { obj_attrs.set_len(40); }
+
     let ppu_start = Instant::now();
     let mut frames_drawn: u128 = 0;
 
@@ -71,27 +77,50 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
             }
             io_ports.and(IO_STAT, !STAT_MODE);
             io_ports.or(IO_STAT, STAT_MODE_OAM);
-            if ppu.ime.load(Ordering::Relaxed) && io_ports.read(IO_IE) & LCDC > 0 && io_ports.read(IO_STAT) & STAT_INT_M10 > 0 {
-                io_ports.or(IO_IF, LCDC);
+            let int_on_m10 =
+                io_ports.read(IO_IE) & INT_LCDC > 0 && io_ports.read(IO_STAT) & STAT_INT_M10 > 0;
+            if ppu.ime.load(Ordering::Relaxed) && int_on_m10 {
+                io_ports.or(IO_IF, INT_LCDC);
                 let mut interrupted = mutex.lock().unwrap();
                 *interrupted = true;
                 cvar.notify_one();
             }
             let oam = ppu.oam.lock().unwrap();
-            let mut obj_attrs: Vec<(usize, ObjAttr)> = Vec::with_capacity(40);
-            for i in (0..0xa0).step_by(4) {
-                obj_attrs.push((i, ObjAttr::new(&oam[i..i+4])));
+            for (i, j) in (0..0xa0).step_by(4).enumerate() {
+                obj_attrs[i] = (j, ObjAttr::new(&oam[j..j+4]));
             }
+            // Objects with smaller x coords have priority. If x coords are equal, the object that
+            // comes earlier in OAM has priority.
             obj_attrs.sort_by(|(a_i, a_attr), (b_i, b_attr)| {
                 if a_attr.x != b_attr.x { 
-                    // Sort by X coord, descending so that sprites at end of the Vec will get
-                    // drawn on top
-                    b_attr.x.cmp(&a_attr.x)
+                    a_attr.x.cmp(&b_attr.x)
                 } else {
-                    // In the case of equal X coords, lower-entry sprites are drawn on top
-                    b_i.cmp(a_i)
+                    a_i.cmp(b_i)
                 }
             });
+            let lcdc = io_ports.read(IO_LCDC);
+            // Up to 10 objects can be drawn per scanline.
+            let mut obj_attrs_line: Vec<ObjAttr> = Vec::with_capacity(10);
+            {
+                for (_, obj) in obj_attrs.iter() {
+                    let obj_y = obj.y as usize;
+
+                    let y_in_range =
+                        if lcdc & LCDC_OBJ_SIZE > 0 {
+                            y >= obj_y - 16 && y < obj_y
+                        } else {
+                            y >= obj_y - 16 && y < obj_y - 8
+                        };
+
+                    if y_in_range {
+                        obj_attrs_line.push(*obj);
+                        if obj_attrs_line.len() == 10 { break; }
+                    }
+                }
+            }
+            // Higher-priority objects should come later so that they will be drawn on top of
+            // lower-priority objects.
+            obj_attrs_line.reverse();
             drop(oam);
 
             io_ports.and(IO_STAT, !STAT_MODE);
@@ -99,7 +128,6 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
             let scx = io_ports.read(IO_SCX);
             let scy = io_ports.read(IO_SCY);
             let wx = io_ports.read(IO_WX) as usize;
-            let lcdc = io_ports.read(IO_LCDC);
             let bgp = io_ports.read(IO_BGP);
             let obp0 = io_ports.read(IO_OBP0);
             let obp1 = io_ports.read(IO_OBP1);
@@ -137,7 +165,7 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                     let scrolled_y = (Wrapping(y as u8) + Wrapping(scy)).0;
                     let current_tile_ix = (scrolled_y as usize / 8)*32 + (scrolled_x as usize / 8);
                     let tile_data_ix = 
-                        if LCDC & LCDC_TILE_DATA > 0 {
+                        if lcdc & LCDC_TILE_DATA > 0 {
                             bg_tile_map[current_tile_ix] as usize
                         } else {
                             (Wrapping(bg_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
@@ -160,7 +188,7 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                         let window_x = x - (wx - 7);
                         let current_tile_ix = (curr_window_line / 8)*32 + (window_x as usize / 8);
                         let tile_data_ix = 
-                            if LCDC & LCDC_TILE_DATA > 0 {
+                            if lcdc & LCDC_TILE_DATA > 0 {
                                 win_tile_map[current_tile_ix] as usize
                             } else {
                                 (Wrapping(win_tile_map[current_tile_ix]) + Wrapping(128)).0 as usize
@@ -186,19 +214,11 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                 }
 
                 if lcdc & LCDC_OBJ_DISP > 0 {
-                    for (_, obj) in obj_attrs.iter() {
+                    for obj in obj_attrs_line.iter() {
                         let obj_x = obj.x as usize;
                         let obj_y = obj.y as usize;
-
                         let x_in_range = x >= obj_x - 8 && x < obj_x;
-                        let y_in_range =
-                            if lcdc & LCDC_OBJ_SIZE > 0 {
-                                y >= obj_y - 16 && y < obj_y
-                            } else {
-                                y >= obj_y - 16 && y < obj_y - 8
-                            };
-
-                        if !x_in_range || !y_in_range {
+                        if !x_in_range {
                             continue;
                         }
 
@@ -256,8 +276,8 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
             let int_on_hblank = io_ports.read(IO_STAT) & STAT_INT_M00 > 0;
             let int_on_lyc_incident = io_ports.read(IO_STAT) & STAT_INT_LYC > 0;
             let lyc_incident = io_ports.read(IO_STAT) & STAT_LYC_SET > 0;
-            if ppu.ime.load(Ordering::Relaxed) && io_ports.read(IO_IE) & LCDC > 0 && (int_on_hblank || (int_on_lyc_incident && lyc_incident)) {
-                io_ports.or(IO_IF, LCDC);
+            if ppu.ime.load(Ordering::Relaxed) && io_ports.read(IO_IE) & INT_LCDC > 0 && (int_on_hblank || (int_on_lyc_incident && lyc_incident)) {
+                io_ports.or(IO_IF, INT_LCDC);
                 let mut interrupted = mutex.lock().unwrap();
                 *interrupted = true;
                 cvar.notify_one();
@@ -270,10 +290,10 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
         io_ports.and(IO_STAT, !STAT_MODE);
         io_ports.or(IO_STAT, STAT_MODE_VBLANK);
         io_ports.write(IO_LY, 144);
-        let int_on_vblank = io_ports.read(IO_IE) & VBLANK > 0;
-        let int_on_m01 = (io_ports.read(IO_IE) & LCDC > 0) && (io_ports.read(IO_STAT) & STAT_INT_M01 > 0);
+        let int_on_vblank = io_ports.read(IO_IE) & INT_VBLANK > 0;
+        let int_on_m01 = (io_ports.read(IO_IE) & INT_LCDC > 0) && (io_ports.read(IO_STAT) & STAT_INT_M01 > 0);
         if ppu.ime.load(Ordering::Relaxed) && (int_on_vblank || int_on_m01) {
-            io_ports.or(IO_IF, VBLANK);
+            if int_on_vblank { io_ports.or(IO_IF, INT_VBLANK); } else { io_ports.or(IO_IF, INT_LCDC); }
             let mut interrupted = mutex.lock().unwrap();
             *interrupted = true;
             cvar.notify_one();

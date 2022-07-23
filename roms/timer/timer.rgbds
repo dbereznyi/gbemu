@@ -1,0 +1,223 @@
+INCLUDE "hardware.inc"
+
+DEF DIGIT_0_TILE_NUM EQU 2
+DEF DIGIT_1_TILE_NUM EQU 3
+
+SECTION "Timer", ROM0[$0050]
+    jp TimerInterrupt
+
+SECTION "Header", ROM0[$100]
+	jp EntryPoint
+
+	ds $150 - @, 0 ; Make room for the header
+
+EntryPoint:
+	; Shut down audio circuitry
+	ld a, 0
+	ld [rNR52], a
+
+	; Do not turn the LCD off outside of VBlank
+WaitVBlank:
+	ld a, [rLY]
+	cp 144
+	jp c, WaitVBlank
+
+	; Turn the LCD off
+	ld a, 0
+	ld [rLCDC], a
+
+    ld hl, $8000
+    ld bc, $2000
+ClearVRAM:
+    ld a, 0
+    ld [hli], a
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, ClearVRAM
+
+    ld hl, $fe00
+    ld bc, 160
+ClearOAM:
+    ld a, 0
+    ld [hli], a
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, ClearOAM
+
+    ld de, Tiles
+    ld hl, $8000
+    ld bc, TilesEnd - Tiles
+CopyTiles:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, CopyTiles
+
+    ld de, SpriteAttrs
+    ld hl, $fe00
+    ld bc, SpriteAttrsEnd - SpriteAttrs
+CopySpriteAttrs:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, CopySpriteAttrs
+
+    ld hl, SpriteX
+    ld a, 8
+    ld [hl], 8
+
+	; Turn the LCD on
+	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_OBJON | LCDCF_BGON
+	ld [rLCDC], a
+
+	ld a, %11100100
+	ld [rBGP], a
+    ld [rOBP0], a
+
+    xor a
+    ld [rTIMA], a
+    ld [rTMA], a
+    ld a, TACF_START | TACF_4KHZ
+    ld [rTAC], a
+
+    xor a
+    ld [rIF], a
+    
+    ld a, IEF_TIMER
+    ld [rIE], a
+    
+    ei
+
+.haltLoop
+    halt
+    nop
+    jp .haltLoop
+
+; Cycles through timer clock speeds, in order of slowest to fastest clock speed
+CycleTACMode:
+    push af
+    push bc
+    push hl
+
+    ld a, [rTAC]
+    and $03
+
+    ld hl, .jumpTable
+    ld b, 0
+    rlc a
+    rlc a
+    ld c, a
+    add hl, bc
+    jp hl
+
+.jumpTable
+    nop
+    jp .clock4KHz
+    nop
+    jp .clock262KHz
+    nop
+    jp .clock65KHz
+    nop
+    jp .clock16KHz
+
+.clock4KHz
+    ld a, TACF_16KHZ
+    jp .loadTAC
+.clock262KHz
+    ld a, TACF_4KHZ
+    jp .loadTAC
+.clock65KHz
+    ld a, TACF_262KHZ
+    jp .loadTAC
+.clock16KHz
+    ld a, TACF_65KHZ
+
+.loadTAC
+    or TACF_START
+    ld [rTAC], a
+
+    pop hl
+    pop bc
+    pop af
+    ret
+
+TimerInterrupt:
+    push af
+    push bc
+    push de
+    push hl
+
+    ; Update timer clock speed mode graphics
+    ld a, [rTAC]
+    and $03
+    ld b, a
+    ld hl, $9801
+    bit 0, b
+    jp z, .d0zero
+    ld a, DIGIT_1_TILE_NUM
+    ld [hl], a
+    jp .d1
+.d0zero
+    ld a, DIGIT_0_TILE_NUM
+    ld [hl], a
+
+.d1
+    ld hl, $9800
+    bit 1, b
+    jp z, .d1zero
+    ld a, DIGIT_1_TILE_NUM
+    ld [hl], a
+    jp .incSpriteX
+.d1zero
+    ld a, DIGIT_0_TILE_NUM
+    ld [hl], a
+
+.incSpriteX
+    ld hl, SpriteX
+    ld a, [hl]
+    inc a
+    cp 160 + 8
+    jp c, .noClamp
+    ld a, 8
+    call CycleTACMode
+.noClamp
+    ld [hl], a
+
+    ld hl, $fe01
+    ld [hl], a
+
+    pop hl
+    pop de
+    pop bc
+    pop af
+    reti
+
+Tiles:
+    ; blank tile
+    db $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, 
+    ; sprite graphic
+    db $ff, $ff, $81, $ff, $81, $ff, $81, $ff, $81, $ff, $81, $ff, $81, $ff, $ff, $ff,
+    ; digit 0
+    db $3c, $3c, $24, $24, $42, $42, $42, $42, $42, $42, $42, $42, $24, $24, $3c, $3c,
+    ; digit 1
+    db $18, $18, $28, $28, $48, $48, $48, $48, $08, $08, $08, $08, $08, $08, $7e, $7e,
+TilesEnd:
+
+SpriteAttrs:
+    db 16 + 60, ; y
+    db 8,  ; x
+    db 1,  ; tile number
+    db 0,  ; flags
+SpriteAttrsEnd:
+
+SECTION "WRAM", WRAM0[$c000]
+
+SpriteX: db
