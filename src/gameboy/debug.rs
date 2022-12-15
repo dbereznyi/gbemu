@@ -1,20 +1,37 @@
 use std::num::ParseIntError;
 use std::ops::Range;
 use std::collections::HashMap;
+use std::sync::atomic::{Ordering};
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::cpu::{decode};
 
 const CMD_HELP: &'static [(&'static str, &'static str, &'static str)] = &[
-    ("step", "<enter>", "Run this instruction and break immediately on next instruction"),
+    ("step", "<enter>", "Run this instruction and break on next instruction"),
+    ("over", "o", "Run this instruction and break on next instruction, stepping over function calls"),
+    ("breaklist", "bl", "List all breakpoints"),
+    ("breakclear", "bc", "Clear all breakpoints"),
+    ("breakadd", "ba $0123", "Add a new breakpoint"),
+    ("breakdel", "bd $0123", "Delete an existing breakpoint"),
+    ("stackbase", "sb $0123", "Set the address to use as the base of the stack. Used by commands like stackviewall. $fffe by default."),
+    ("stackview", "sv 3", "View N bytes on the stack"),
+    ("stackviewall", "sva", "View all bytes on the stack"),
     ("help", "h", "Display this message"),
-    ("continue", "c", "Run this instruction and break immediately on next instruction"),
+    ("continue", "c", "Continue execution until next breakpoint"),
     ("registers", "r", "Display an overview of current Gameboy register values"),
     ("view", "v $0123, v $0123-$0133, v $0123+$10, v $0123+16", "View contents of a range of memory addresses, or view N bytes starting from a specific address"),
-    ("disassemble", "d $0123, v $0123-$0133, v $0123+$10, v $0123+16", "Disassemble the data at the given address(es) into instructions"),
+    ("disassemble", "d $0123, v $0123-$0133, v $0123+$10, v $0123+16", "Disassemble the data at the given address(es)"),
 ];
 
 pub enum DebugCmd {
     Step,
+    Over,
+    BreakList,
+    BreakClear,
+    BreakAdd(u16),
+    BreakDel(u16),
+    StackBase(u16),
+    StackView(u16),
+    StackViewAll,
     Help,
     Continue,
     Registers,
@@ -28,6 +45,9 @@ impl DebugCmd {
         if cmd == "" {
             return Ok(DebugCmd::Step);
         }
+        if cmd == "o" {
+            return Ok(DebugCmd::Over);
+        }
         if cmd == "h" {
             return Ok(DebugCmd::Help);
         }
@@ -36,6 +56,32 @@ impl DebugCmd {
         }
         if cmd == "r" {
             return Ok(DebugCmd::Registers);
+        }
+        if cmd == "bl" {
+            return Ok(DebugCmd::BreakList);
+        }
+        if cmd.starts_with("ba ") {
+            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
+            let addr = parse_num(args)?;
+            return Ok(DebugCmd::BreakAdd(addr));
+        }
+        if cmd.starts_with("bd ") {
+            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
+            let addr = parse_num(args)?;
+            return Ok(DebugCmd::BreakDel(addr));
+        }
+        if cmd.starts_with("sb ") {
+            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
+            let addr = parse_num(args)?;
+            return Ok(DebugCmd::StackBase(addr));
+        }
+        if cmd.starts_with("sv ") {
+            let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
+            let n = parse_num(args)?;
+            return Ok(DebugCmd::StackView(n));
+        }
+        if cmd == "sva" {
+            return Ok(DebugCmd::StackViewAll);
         }
         if cmd.starts_with("v ") {
             let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];
@@ -50,30 +96,72 @@ impl DebugCmd {
         Err(String::from("Unknown command"))
     }
 
-    pub fn run(&self, gb: &mut Gameboy) -> bool {
+    pub fn run(&self, gb: &mut Gameboy) -> Result<bool, String> {
         match self {
-            DebugCmd::Step => true,
+            DebugCmd::Step => Ok(true),
+            DebugCmd::Over => {
+                let next_instr = decode(gb, gb.pc)
+                    .map_err(|e| format!("Failed to decode instruction at ${:0>4x}: {e}", gb.pc))?;
+                let addr = gb.pc + next_instr.size(gb).1;
+                gb.debug.over_ret_addr = addr;
+                gb.debug.step_mode.store(false, Ordering::Release);
+                Ok(true)
+            },
+            DebugCmd::BreakList => {
+                for breakpoint in gb.debug.breakpoints.iter() {
+                    print!("${breakpoint:0>4x} ");
+                }
+                println!();
+                Ok(false)
+            },
+            DebugCmd::BreakClear => {
+                gb.debug.breakpoints.clear();
+                println!("Cleared all breakpoints");
+                Ok(false)
+            },
+            DebugCmd::BreakAdd(addr) => {
+                if gb.debug.breakpoints.contains(addr) {
+                    return Err("Breakpoint already exists".to_string())
+                }
+                gb.debug.breakpoints.push(*addr);
+                println!("Added breakpoint ${addr:0>4x}");
+                Ok(false)
+            },
+            DebugCmd::BreakDel(addr) => {
+                let pos = gb.debug.breakpoints.iter().position(|&x| x == *addr)
+                    .ok_or("Breakpoint does not exist".to_string())?;
+                gb.debug.breakpoints.swap_remove(pos);
+                println!("Deleted breakpoint ${addr:0>4x}");
+                Ok(false)
+            },
+            DebugCmd::StackBase(addr) => {
+                gb.debug.stack_base = *addr;
+                println!("Set stack base to ${addr:0>4x}");
+                Ok(false)
+            },
+            DebugCmd::StackView(n) => DebugCmd::View(gb.sp..(gb.sp+n)).run(gb),
+            DebugCmd::StackViewAll => DebugCmd::View(gb.sp..gb.debug.stack_base).run(gb),
             DebugCmd::Help => {
                 for &(name, usages, description) in CMD_HELP.iter() {
                     println!("{name}: {usages}\n    {description}");
                 }
                 println!();
-                false
+                Ok(false)
             },
             DebugCmd::Continue => {
-                gb.step_mode = false;
-                true
+                gb.debug.step_mode.store(false, Ordering::Release);
+                Ok(true)
             },
             DebugCmd::Registers => {
                 println!("{}\n", gb);
-                false
+                Ok(false)
             },
             DebugCmd::View(range) => {
                 for addr in range.start..range.end {
                     println!("${addr:0>4X}: ${:0>2X}", gb.read(addr));
                 }
                 println!();
-                false
+                Ok(false)
             },
             DebugCmd::Disassemble(range) => {
                 for addr in range.start..range.end {
@@ -84,7 +172,7 @@ impl DebugCmd {
                                 .unwrap_or("(could not disassemble)".to_string()));
                 }
                 println!();
-                false
+                Ok(false)
             },
         }
     }

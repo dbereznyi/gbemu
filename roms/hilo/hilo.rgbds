@@ -1,7 +1,7 @@
 INCLUDE "hardware.inc"
 
-SECTION "P1NegEdge", ROM0[$0060]
-    jp P1NegEdgeInterrupt
+SECTION "Hilo", ROM0[$0060]
+    jp HiloInterrupt
 
 SECTION "Header", ROM0[$100]
 	jp EntryPoint
@@ -55,7 +55,7 @@ CopyTilemap:
     ; Clear any pending interrupts
     xor a
     ld [rIF], a
-    ; Enable P1 negative edge interrupts
+    ; Enable HILO interrupts
     ld a, IEF_HILO
     ld [rIE], a
     ei
@@ -65,7 +65,7 @@ CopyTilemap:
     nop
     jp .haltLoop
 
-P1NegEdgeInterrupt:
+HiloInterrupt:
     push af
     push bc
     push de

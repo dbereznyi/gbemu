@@ -307,12 +307,12 @@ pub fn jp_cond(gb: &mut Gameboy, cond: Cond, addr: u16) {
 }
 
 pub fn jr(gb: &mut Gameboy, offset: i8) {
-    gb.pc = (Wrapping(gb.pc as i16) + Wrapping(offset as i16)).0 as u16;
+    gb.pc = (Wrapping(gb.pc as i16) + Wrapping(2 as i16) + Wrapping(offset as i16)).0 as u16;
 }
 
 pub fn jr_cond(gb: &mut Gameboy, cond: Cond, offset: i8) {
     if cond.check(gb) {
-        gb.pc = (Wrapping(gb.pc as i16) + Wrapping(offset as i16)).0 as u16;
+        gb.pc = (Wrapping(gb.pc as i16) + Wrapping(2 as i16) + Wrapping(offset as i16)).0 as u16;
     }
 }
 

@@ -1,4 +1,4 @@
-These are simple test ROMs that can be used to verify or debug various emulator functionality.
+These are simple test ROMs that can be used to verify or debug various emulator functionalities.
 
 hello-world.gb
     Displays a fancy Hello World graphic to the screen.
@@ -16,10 +16,27 @@ controller.gb
     Reads controller input every VBlank and updates corresponding tiles on the screen to indicate which
     buttons are being pressed.
 
-p1_neg_edge.gb
-    Initializes VRAM to all blank (white) tiles then enables P1 negative edge interrupt. On each interrupt,
-    inverts the background palette (i.e. toggles color 0 between white and black).
-    Effect is that on every input press, a single interrupt is generated. However, it seems that different
+hilo.gb
+    Initializes VRAM to all blank (white) tiles then enables the HILO interrupt. On each interrupt, inverts
+    the background palette (i.e. toggles color 0 between white and black).
+    The effect is that on every input press, a single interrupt is generated. However, it seems that different
     emulators handle this slightly differently, with some introducing noise causing the interrupt to trigger
     multiple times per input press.
 
+timer.gb
+    Uses the timer interrupt to increment the X coordinate of a sprite once per interrupt. When the sprite
+    reaches the end of the screen, the sprite's X coordinate wraps back around to the start and TAC is
+    updated to use the next clock speed.
+    The actual clock frequencies for the timer seem not quite right. Either that or each emulator seems to
+    just implement these differently.
+
+sprites.gb
+    Mainly tests the 10-sprites-per-scanline limit functionality. Creates 11 sprites and places them on the
+    same Y coordinate, which causes the 11th sprite to not be drawn. In addition, a single sprite is selected
+    to "fall", incrementing its Y coordinate every frame and wrapping around to the top of the screen when it
+    goes off-screen. When the falling sprite crosses the middle of the screen, the 11th sprite can be observed
+    to "vanish" as the falling sprite enters the same scanlines the 11th sprite occupies.
+    The falling sprite can be changed using the left and right D-pad inputs. A single press of either the left
+    or right inputs will only cause the currently-selected falling sprite to change by 1. This is because polling
+    input every frame causes even a short press of an input to be counted multiple times. An alternative would be
+    changing the polling frequency to be less often, e.g. once per 8 frames.

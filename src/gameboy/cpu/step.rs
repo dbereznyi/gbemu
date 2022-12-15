@@ -68,7 +68,7 @@ pub fn step(gb: &mut Gameboy) -> Result<(), String> {
         Instr::Set(bt, dst)    => set(gb, bt, dst),
         Instr::Swap(dst)       => swap(gb, dst),
     }
-    gb.pc += instr.size(gb);
+    gb.pc += instr.size(gb).0;
     gb.cycles += instr.num_cycles(gb);
     Ok(())
 }

@@ -3,17 +3,18 @@ use std::fmt;
 use std::time::{Duration, Instant};
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread::{JoinHandle, Thread};
 use std::io::{self, Write};
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::debug::{*};
 use crate::gameboy::debug_info::{DebugInfoCpu};
 use crate::gameboy::cpu::step::{step, decode};
 use crate::gameboy::cpu::exec::{push_pc};
+use crate::gameboy::utils::{sleep_precise};
 
-pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
+pub fn run_cpu<T>(gb: &mut Gameboy, debug_info: DebugInfoCpu, components: &[JoinHandle<T>]) {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let cpu_start = Instant::now();
 
     loop {
         if gb.halted.load(Ordering::Relaxed) {
@@ -25,6 +26,8 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
             *interrupted = false;
             gb.halted.store(false, Ordering::Relaxed);
         } 
+
+        let cpu_start = Instant::now();
 
         let io_if = gb.io_ports.read(IO_IF);
         if gb.ime.load(Ordering::Relaxed) && io_if > 0 {
@@ -53,11 +56,11 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
             *interrupted = false;
         }
 
-        if gb.breakpoints.contains(&gb.pc) {
-            gb.step_mode = true;
+        if gb.debug.breakpoints.contains(&gb.pc) || gb.pc == gb.debug.over_ret_addr {
+            gb.debug.step_mode.store(true, Ordering::Release);
         }
 
-        if gb.step_mode {
+        if gb.debug.step_mode.load(Ordering::Acquire) {
             loop {
                 println!("==> ${:0>4X}: {}",
                          gb.pc, 
@@ -66,27 +69,37 @@ pub fn run_cpu(gb: &mut Gameboy, debug_info: DebugInfoCpu) {
                 stdout.flush().unwrap();
                 let mut line = String::new();
                 stdin.read_line(&mut line).unwrap();
-                let cmd = DebugCmd::new(&line);
-                match cmd {
-                    Result::Ok(cmd) => {
-                        let should_break = cmd.run(gb);
-                        if should_break { break; }
+                match DebugCmd::new(&line) {
+                    Ok(cmd) => {
+                        match cmd.run(gb) {
+                            Ok(exit_prompt_loop) => {
+                                if exit_prompt_loop { break; }
+                            },
+                            Err(err) => eprintln!("{}", err),
+                        }
                     },
-                    Result::Err(err) => eprintln!("{}", err),
+                    Err(err) => eprintln!("{}", err),
                 }
             }
+
+            unpark_components(components);
         }
 
+        let cycles_start = gb.cycles;
         step(gb).unwrap();
 
         let elapsed = cpu_start.elapsed();
-        let expected = Duration::from_micros(gb.cycles); 
+        let expected = Duration::from_micros(gb.cycles - cycles_start); 
         if expected > elapsed {
-            thread::sleep(expected - elapsed);
+            sleep_precise(expected - elapsed);
         }
-        // TODO This doesn't really work well when the CPU is halted. Need to do something a bit
-        // different.
-        debug_info.actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
-        debug_info.expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
+        debug_info.actual_time_nanos.store(cpu_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        debug_info.expected_time_nanos.store(expected.as_nanos() as u64, Ordering::Relaxed);
+    }
+}
+
+fn unpark_components<T>(components: &[JoinHandle<T>]) {
+    for component in components.iter() {
+        component.thread().unpark();
     }
 }

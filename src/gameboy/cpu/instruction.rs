@@ -286,9 +286,8 @@ impl Instr {
             Instr::Inc16(_) | Instr::Dec16(_) => 2,
 
             Instr::Jp(src) => match src {
-                Src16::D16(_) => 4,
                 Src16::R16(RHL) => 1,
-                _ => panic!("Invalid dst, src"),
+                _ => 4,
             },
             Instr::JpCC(cond, _) => if cond.check(gb) { 4 } else { 3 },
             Instr::Jr(_) => 3,
@@ -326,86 +325,95 @@ impl Instr {
         }
     }
 
-    /// The length, in bytes, of an instruction. Used to calculate next PC value.
-    /// For jump instructions, 0 is returned if PC would be directly modified by the instruction.
-    pub fn size(&self, gb: &Gameboy) -> u16 {
+    /// The size, in bytes, of an instruction.
+    /// The first value is the effective size, which is 0 when the instruction will directly modify
+    /// PC. This is used by step to automatically calculate the address of the next instruction to
+    /// execute.
+    /// The second value is the actual size, i.e. the number of bytes the instruction actually
+    /// takes up.
+    pub fn size(&self, gb: &Gameboy) -> (u16, u16) {
         match self {
-            Instr::Nop => 1,
-            Instr::Stop => 2,
-            Instr::Halt => 1,
-            Instr::Di => 1,
-            Instr::Ei => 1,
-            Instr::Ccf => 1,
-            Instr::Scf => 1,
-            Instr::Daa => 1,
-            Instr::Cpl => 1,
+            Instr::Nop => (1, 1),
+            Instr::Stop => (2, 2),
+            Instr::Halt => (1, 1),
+            Instr::Di => (1, 1),
+            Instr::Ei => (1, 1),
+            Instr::Ccf => (1, 1),
+            Instr::Scf => (1, 1),
+            Instr::Daa => (1, 1),
+            Instr::Cpl => (1, 1),
 
             Instr::Ld(dst, src) => match (dst, src) {
-                (Dst8::R8(_), Src8::R8(_)) => 1,
-                (Dst8::R8(_), Src8::D8(_)) => 2,
-                (Dst8::Id(_), Src8::R8(_)) | (Dst8::R8(_), Src8::Id(_)) => 1,
-                (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => 1,
-                (Dst8::IdFF(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFF(_)) => 2,
-                (Dst8::Id(RHL), Src8::D8(_)) => 2,
-                (Dst8::IdNN(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdNN(_)) => 3,
+                (Dst8::R8(_), Src8::R8(_)) => (1, 1),
+                (Dst8::R8(_), Src8::D8(_)) => (2, 2),
+                (Dst8::Id(_), Src8::R8(_)) | (Dst8::R8(_), Src8::Id(_)) => (1, 1),
+                (Dst8::IdFFRC, Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFFRC) => (1, 1),
+                (Dst8::IdFF(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdFF(_)) => (2, 2),
+                (Dst8::Id(RHL), Src8::D8(_)) => (2, 2),
+                (Dst8::IdNN(_), Src8::R8(RA)) | (Dst8::R8(RA), Src8::IdNN(_)) => (3, 3),
                 _ => panic!("Invalid dst, src"),
             },
-            Instr::LdInc(_, _) | Instr::LdDec(_, _) => 1,
+            Instr::LdInc(_, _) | Instr::LdDec(_, _) => (1, 1),
 
             Instr::Ld16(_, src) => match src {
-                Src16::R16(RHL) => 1,
-                Src16::SPD8(_) => 2,
-                _ => 3,
+                Src16::R16(RHL) => (1, 1),
+                Src16::SPD8(_) => (2, 2),
+                _ => (3, 3),
             },
-            Instr::Push(_) | Instr::Pop(_) => 1,
+            Instr::Push(_) | Instr::Pop(_) => (1, 1),
 
-            Instr::Inc(_) | Instr::Dec(_) => 1,
+            Instr::Inc(_) | Instr::Dec(_) => (1, 1),
             Instr::Add(src) | Instr::Adc(src) | Instr::Sub(src) | Instr::Sbc(src) 
             | Instr::And(src) | Instr::Xor(src) | Instr::Or(src) | Instr::Cp(src) 
             => match src {
-                Src8::D8(_) => 2,
-                _ => 1,
+                Src8::D8(_) => (2, 2),
+                _ => (1, 1),
             },
 
-            Instr::Add16HL(_) => 1,
-            Instr::Add16SP(_) => 2,
-            Instr::Inc16(_) | Instr::Dec16(_) => 1,
+            Instr::Add16HL(_) => (1, 1),
+            Instr::Add16SP(_) => (2, 2),
+            Instr::Inc16(_) | Instr::Dec16(_) => (1, 1),
 
-            Instr::Jp(_) => 0,
-            Instr::JpCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
-            Instr::Jr(_) => 0,
-            Instr::JrCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
-            Instr::Call(_) => 0,
-            Instr::CallCC(cond, _) => if cond.check(gb) { 0 } else { 3 },
-            Instr::Ret => 0,
-            Instr::RetCC(cond) => if cond.check(gb) { 0 } else { 3 },
-            Instr::Reti => 0,
-            Instr::Rst(_) => 0,
+            Instr::Jp(src) => match src {
+                Src16::R16(RHL) => (0, 1),
+                _ => (0, 3),
+            },
+            Instr::JpCC(cond, _) => if cond.check(gb) { (0, 3) } else { (3, 3) },
+            Instr::Jr(_) => (0, 2),
+            Instr::JrCC(cond, _) => if cond.check(gb) { (0, 2) } else { (2, 2) },
+            Instr::Call(_) => (0, 3),
+            Instr::CallCC(cond, _) => if cond.check(gb) { (0, 3) } else { (3, 3) },
+            Instr::Ret => (0, 1),
+            Instr::RetCC(cond) => if cond.check(gb) { (0, 1) } else { (1, 1) },
+            Instr::Reti => (0, 1),
+            Instr::Rst(_) => (0, 1),
 
-            Instr::Rlca | Instr::Rla | Instr::Rrca | Instr::Rra => 1,
-            Instr::Rlc(_) => 2,
-            Instr::Rrc(_) => 2,
-            Instr::Rl(_) => 2,
-            Instr::Rr(_) => 2,
-            Instr::Sla(_) => 2,
-            Instr::Sra(_) => 2,
-            Instr::Srl(_) => 2,
-            Instr::Bit(_, _) => 2,
-            Instr::Res(_, _) => 2,
-            Instr::Set(_, _) => 2,
-            Instr::Swap(_) => 2,
+            Instr::Rlca | Instr::Rla | Instr::Rrca | Instr::Rra => (1, 1),
+            Instr::Rlc(_) => (2, 2),
+            Instr::Rrc(_) => (2, 2),
+            Instr::Rl(_) => (2, 2),
+            Instr::Rr(_) => (2, 2),
+            Instr::Sla(_) => (2, 2),
+            Instr::Sra(_) => (2, 2),
+            Instr::Srl(_) => (2, 2),
+            Instr::Bit(_, _) => (2, 2),
+            Instr::Res(_, _) => (2, 2),
+            Instr::Set(_, _) => (2, 2),
+            Instr::Swap(_) => (2, 2),
         }
     }
 
     pub fn to_string(&self) -> String {
         fn reg8_to_str(r: R) -> &'static str {
             match r {
-                RA => "a",
                 RB => "b",
                 RC => "c",
                 RD => "d",
                 RE => "e",
+                RH => "h",
+                RL => "l",
                 RF => "f",
+                RA => "a",
                 _ => panic!("Invalid 8-bit register {}", r),
             }
         }
@@ -421,13 +429,10 @@ impl Instr {
         fn dst8(s: &mut String, dst: Dst8, inc_dec: Option<IncDec>) {
             match dst {
                 Dst8::R8(r) => s.push_str(reg8_to_str(r)),
-                Dst8::Id(rr) => {
-                    s.push_str(format!("(${})", reg16_to_str(rr)).as_str());
-                    match inc_dec {
-                       Some(IncDec::Inc) => s.push('+'),
-                       Some(IncDec::Dec) => s.push('-'),
-                       _ => (),
-                    }
+                Dst8::Id(rr) => match inc_dec {
+                   Some(IncDec::Inc) => s.push_str("(hl+)"),
+                   Some(IncDec::Dec) => s.push_str("(hl-)"),
+                   _ => s.push_str(format!("({})", reg16_to_str(rr)).as_str()),
                 },
                 Dst8::IdFFRC => s.push_str("(C)"),
                 Dst8::IdFF(n) => s.push_str(format!("(${:0>2x})", n).as_str()),
@@ -437,13 +442,10 @@ impl Instr {
         fn src8(s: &mut String, src: Src8, inc_dec: Option<IncDec>) {
             match src {
                 Src8::R8(r) => s.push_str(reg8_to_str(r)),
-                Src8::Id(rr) => {
-                    s.push_str(format!("(${})", reg16_to_str(rr)).as_str());
-                    match inc_dec {
-                       Some(IncDec::Inc) => s.push('+'),
-                       Some(IncDec::Dec) => s.push('-'),
-                       _ => (),
-                    }
+                Src8::Id(rr) => match inc_dec {
+                   Some(IncDec::Inc) => s.push_str("(hl+)"),
+                   Some(IncDec::Dec) => s.push_str("(hl-)"),
+                   _ => s.push_str(format!("({})", reg16_to_str(rr)).as_str()),
                 },
                 Src8::IdFFRC => s.push_str("(C)"),
                 Src8::IdFF(n) => s.push_str(format!("(${:0>2x})", n).as_str()),
@@ -619,6 +621,7 @@ impl Instr {
             },
             Instr::Jr(n) => {
                 let mut s = String::from("jr ");
+                // TODO print effective jump addr instead of the literal offset
                 r8(&mut s, n);
                 s
             },

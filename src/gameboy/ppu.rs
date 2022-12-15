@@ -6,14 +6,17 @@ use std::num::{Wrapping};
 use std::convert::TryInto;
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::debug_info::{DebugInfoPpu};
+use crate::gameboy::utils::{sleep_precise};
 
 pub const PALETTE_GREY: [(u8,u8,u8); 4] = [(255,255,255), (127,127,127), (63,63,63), (0,0,0)];
 pub const PALETTE_RED: [(u8,u8,u8); 4] = [(255,0,0), (127,0,0), (63,0,0), (0,0,0)];
 pub const PALETTE_GREEN: [(u8,u8,u8); 4] = [(0,255,0), (0,127,0), (0,63,0), (0,0,0)];
 pub const PALETTE_BLUE: [(u8,u8,u8); 4] = [(0,0,255), (0,0,127), (0,0,63), (0,0,0)];
 
+const OAM_TIME: Duration = Duration::from_nanos(19_000);
+const DRAW_TIME: Duration = Duration::from_nanos(41_000);
 const HBLANK_TIME: Duration = Duration::from_nanos(48_600);
-const VBLANK_TIME: Duration = Duration::from_nanos(1_087_188);
+const LINE_TIME: Duration = Duration::from_nanos(108_718);
 const FRAME_TIME: Duration  = Duration::from_nanos(16_750_000);
 
 const OBJ_PRIORITY: u8 = 0b1000_0000;
@@ -30,8 +33,8 @@ struct ObjAttr {
 }
 
 impl ObjAttr {
-    pub fn new(bytes: &[u8]) -> ObjAttr {
-        ObjAttr {
+    pub fn new(bytes: &[u8]) -> Self {
+        Self {
             y: bytes[0],
             x: bytes[1],
             tile_number: bytes[2],
@@ -48,6 +51,22 @@ pub struct Ppu {
     pub ime: Arc<AtomicBool>,
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
     pub palette: [(u8,u8,u8); 4],
+    pub step_mode: Arc<AtomicBool>,
+}
+
+impl Ppu {
+    pub fn new(gb: &Gameboy, palette: [(u8, u8, u8); 4]) -> Self {
+        Self {
+            vram: gb.vram.clone(),
+            oam: gb.oam.clone(),
+            io_ports: gb.io_ports.clone(),
+            screen: gb.screen.clone(),
+            ime: gb.ime.clone(),
+            interrupt_received: Arc::clone(&gb.interrupt_received),
+            palette: palette,
+            step_mode: gb.debug.step_mode.clone(),
+        }
+    }
 }
 
 pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
@@ -58,23 +77,24 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
     // This is to get around having to init the vec with dummy data that we just overwrite in the
     // first run of the PPU.
     unsafe { obj_attrs.set_len(40); }
-
-    let ppu_start = Instant::now();
-    let mut frames_drawn: u128 = 0;
+    
+    // Give the CPU a bit to start up
+    thread::sleep(Duration::from_nanos(1000));
 
     loop {
+        let frame_start = Instant::now();
+
         let lcd_is_off = io_ports.read(IO_LCDC) & LCDC_ON == 0; // LCD should only be turned off in VBlank
         let wy = io_ports.read(IO_WY) as usize; // WY is only checked once per frame
 
         let mut curr_window_line = 0;
 
+        io_ports.write(IO_LY, 0);
+
+        wait_if_debug_break(ppu);
+
         for y in 0..144 {
-            io_ports.write(IO_LY, y as u8);
-            if io_ports.read(IO_LY) == io_ports.read(IO_LYC) {
-                io_ports.or(IO_STAT, STAT_LYC_SET);
-            } else {
-                io_ports.and(IO_STAT, !STAT_LYC_SET);
-            }
+            let oam_start = Instant::now();
             io_ports.and(IO_STAT, !STAT_MODE);
             io_ports.or(IO_STAT, STAT_MODE_OAM);
             let int_on_m10 =
@@ -86,7 +106,7 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                 cvar.notify_one();
             }
             let oam = ppu.oam.lock().unwrap();
-            for (i, j) in (0..0xa0).step_by(4).enumerate() {
+            for (i, j) in (0..160).step_by(4).enumerate() {
                 obj_attrs[i] = (j, ObjAttr::new(&oam[j..j+4]));
             }
             // Objects with smaller x coords have priority. If x coords are equal, the object that
@@ -107,9 +127,9 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
 
                     let y_in_range =
                         if lcdc & LCDC_OBJ_SIZE > 0 {
-                            y >= obj_y - 16 && y < obj_y
+                            y >= (Wrapping(obj_y) - Wrapping(16)).0 && y < obj_y
                         } else {
-                            y >= obj_y - 16 && y < obj_y - 8
+                            y >= (Wrapping(obj_y) - Wrapping(16)).0 && y < (Wrapping(obj_y) - Wrapping(8)).0
                         };
 
                     if y_in_range {
@@ -121,8 +141,13 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
             // Higher-priority objects should come later so that they will be drawn on top of
             // lower-priority objects.
             obj_attrs_line.reverse();
+            wait_if_debug_break(ppu);
+            sleep_precise(OAM_TIME.checked_sub(oam_start.elapsed()).unwrap_or(Duration::ZERO));
+            debug_info.oam_time_nanos.store(oam_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            wait_if_debug_break(ppu);
             drop(oam);
 
+            let draw_start = Instant::now();
             io_ports.and(IO_STAT, !STAT_MODE);
             io_ports.or(IO_STAT, STAT_MODE_TRANSFER);
             let scx = io_ports.read(IO_SCX);
@@ -138,7 +163,7 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                 } else {
                     &vram[0x0800..0x1800]
                 };
-            let obj_tile_data = &vram[0x0000..0x1000]; // OBJ tile data is always at 0x8000-0x8fff
+            let obj_tile_data = &vram[0x0000..0x1000];
             let bg_tile_map = 
                 if lcdc & LCDC_BG_TILE_MAP > 0 {
                     &vram[0x1c00..0x2000]
@@ -154,6 +179,7 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
 
             let mut screen = ppu.screen.lock().unwrap();
             for x in 0..160 {
+                wait_if_debug_break(ppu);
                 screen[y][x] = ppu.palette[0];
 
                 if lcd_is_off {
@@ -266,6 +292,9 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                     }
                 }
             }
+            wait_if_debug_break(ppu);
+            sleep_precise(DRAW_TIME.checked_sub(draw_start.elapsed()).unwrap_or(Duration::ZERO));
+            wait_if_debug_break(ppu);
             drop(vram);
             drop(screen);
 
@@ -282,14 +311,22 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
                 *interrupted = true;
                 cvar.notify_one();
             }
-            thread::sleep(HBLANK_TIME);
+            wait_if_debug_break(ppu);
+            sleep_precise(HBLANK_TIME);
+            wait_if_debug_break(ppu);
+
+            io_ports.add(IO_LY, 1);
+            if io_ports.read(IO_LY) == io_ports.read(IO_LYC) {
+                io_ports.or(IO_STAT, STAT_LYC_SET);
+            } else {
+                io_ports.and(IO_STAT, !STAT_LYC_SET);
+            }
         }
         
         // VBlank
 
         io_ports.and(IO_STAT, !STAT_MODE);
         io_ports.or(IO_STAT, STAT_MODE_VBLANK);
-        io_ports.write(IO_LY, 144);
         let int_on_vblank = io_ports.read(IO_IE) & INT_VBLANK > 0;
         let int_on_m01 = (io_ports.read(IO_IE) & INT_LCDC > 0) && (io_ports.read(IO_STAT) & STAT_INT_M01 > 0);
         if ppu.ime.load(Ordering::Relaxed) && (int_on_vblank || int_on_m01) {
@@ -298,17 +335,21 @@ pub fn run_ppu(ppu: &mut Ppu, debug_info: DebugInfoPpu) {
             *interrupted = true;
             cvar.notify_one();
         }
-        // TODO properly simulate LY increasing from 144 to 153 throughout VBlank
-        thread::sleep(VBLANK_TIME);
-
-        frames_drawn += 1;
-
-        let elapsed = ppu_start.elapsed();
-        let expected = Duration::from_nanos((FRAME_TIME.as_nanos() * frames_drawn).try_into().unwrap());
-        if expected > elapsed {
-            thread::sleep(expected - elapsed);
+        for _ in 0..10 {
+            wait_if_debug_break(ppu);
+            sleep_precise(LINE_TIME);
+            io_ports.add(IO_LY, 1);
         }
+
+        let elapsed = frame_start.elapsed();
+        let expected = FRAME_TIME;
         debug_info.actual_time_micros.store(elapsed.as_micros() as u64, Ordering::Relaxed);
         debug_info.expected_time_micros.store(expected.as_micros() as u64, Ordering::Relaxed);
+    }
+}
+
+fn wait_if_debug_break(ppu: &Ppu) {
+    while ppu.step_mode.load(Ordering::Acquire) {
+        thread::park();
     }
 }

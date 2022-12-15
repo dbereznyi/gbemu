@@ -132,6 +132,24 @@ impl IoPorts {
     }
 }
 
+pub struct Debug {
+    pub step_mode: Arc<AtomicBool>,
+    pub breakpoints: Vec<u16>,
+    pub over_ret_addr: u16,
+    pub stack_base: u16,
+}
+
+impl Debug {
+    pub fn new() -> Self {
+        Self {
+            step_mode: Arc::new(AtomicBool::new(false)),
+            breakpoints: vec!(),
+            over_ret_addr: 0x0000,
+            stack_base: 0xfffe,
+        }
+    }
+}
+
 pub struct Gameboy {
     wram: Box<[u8; 0x2000]>,
     pub vram: Arc<Mutex<[u8; 0x2000]>>,
@@ -148,8 +166,7 @@ pub struct Gameboy {
     pub halted: Arc<AtomicBool>,
     pub stopped: Arc<AtomicBool>,
 
-    pub step_mode: bool,
-    pub breakpoints: Vec<u16>,
+    pub debug: Debug,
 
     /// CPU can wait on this variable to sleep until interrupted.
     pub interrupt_received: Arc<(Mutex<bool>, Condvar)>,
@@ -180,8 +197,7 @@ impl Gameboy {
             hram: Box::new([0; 0x7f]),
             cartridge: cartridge,
 
-            step_mode: false,
-            breakpoints: vec!(),
+            debug: Debug::new(),
 
             cycles: 0,
             pc: 0x0100, 
@@ -222,7 +238,7 @@ impl Gameboy {
             },
             0xfea0..=0xfeff => {
                 println!("Warning: attempt to read from invalid memory ${addr:0>4x}");
-                0x00
+                0xff
             },
             0xff00..=0xff4b => {
                 let port = (addr - 0xff00) as usize;
@@ -230,7 +246,7 @@ impl Gameboy {
             },
             0xff4c..=0xff7f => {
                 println!("Warning: attempt to read from invalid memory ${addr:0>4x}");
-                0x00
+                0xff
             },
             0xff80..=0xfffe => {
                 self.hram[(addr - 0xff80) as usize]

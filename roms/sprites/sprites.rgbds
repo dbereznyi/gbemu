@@ -1,5 +1,11 @@
 INCLUDE "hardware.inc"
 
+DEF VRAM_START EQU $8000
+DEF VRAM_SIZE EQU $2000
+DEF OAM_START EQU $fe00
+DEF OAM_SIZE EQU 160
+DEF POLL_INTERVAL EQU 5
+
 SECTION "VBlank", ROM0[$0040]
     jp VBlank
 
@@ -23,8 +29,8 @@ WaitVBlank:
 	ld a, 0
 	ld [rLCDC], a
 
-    ld hl, $8000
-    ld bc, $2000
+    ld hl, VRAM_START
+    ld bc, VRAM_SIZE
 ClearVRAM:
     ld a, 0
     ld [hli], a
@@ -33,39 +39,56 @@ ClearVRAM:
     or a, c
     jp nz, ClearVRAM
 
-    ld hl, $fe00
-    ld bc, 160
-ClearOAM:
+    ld hl, OAMBuffer
+    ld bc, OAMBufferEnd - OAMBuffer
+ClearOAMBuffer:
     ld a, 0
     ld [hli], a
     dec bc
     ld a, b
     or a, c
-    jp nz, ClearOAM
+    jp nz, ClearOAMBuffer
 
     ld de, Tiles
-    ld hl, $8000
+    ld hl, VRAM_START
     ld bc, TilesEnd - Tiles
-CopyTiles:
+CopyTilesToVRAM:
     ld a, [de]
     ld [hli], a
     inc de
     dec bc
     ld a, b
     or a, c
-    jp nz, CopyTiles
+    jp nz, CopyTilesToVRAM
 
     ld de, SpriteAttrs
-    ld hl, $fe00
+    ld hl, OAMBuffer
     ld bc, SpriteAttrsEnd - SpriteAttrs
-CopySpriteAttrs:
+CopySpriteAttrsToOAMBuffer:
     ld a, [de]
     ld [hli], a
     inc de
     dec bc
     ld a, b
     or a, c
-    jp nz, CopySpriteAttrs
+    jp nz, CopySpriteAttrsToOAMBuffer
+
+    ld de, OAMBuffer
+    ld hl, OAM_START
+    ld bc, OAM_SIZE
+CopyOAMBufferToOAM:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jp nz, CopyOAMBufferToOAM
+
+    ld a, 5
+    ld [FallingSpriteOffset], a
+    xor a
+    ld [LastControllerInput], a
 
 	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_OBJON | LCDCF_BGON
 	ld [rLCDC], a
@@ -73,7 +96,7 @@ CopySpriteAttrs:
 	ld a, %11100100
 	ld [rBGP], a
     ld [rOBP0], a
-    ld a, %01110000 ; inverted palette, to make overlapping sprites stand out
+    ld a, %01110000 ; different palette to help make alternating sprites stand out more
     ld [rOBP1], a
 
     ld a, IEF_VBLANK
@@ -86,13 +109,144 @@ CopySpriteAttrs:
     nop
     jp .haltLoop
 
+; Reads controller data into register B
+ReadController:
+    ld a, P1F_GET_DPAD
+    ld [rP1], a
+    ld a, [rP1]
+    ld a, [rP1]
+    cpl
+    and $0f
+    swap a
+    ld b, a
+
+    ld a, P1F_GET_BTN
+    ld [rP1], a
+    ld a, [rP1]
+    ld a, [rP1]
+    ld a, [rP1]
+    ld a, [rP1]
+    ld a, [rP1]
+    ld a, [rP1]
+    cpl
+    and $0f
+    or b
+    ld b, a
+
+    ld a, P1F_GET_NONE
+    ld [rP1], a
+
+    ret
+
+; ReadController, but only sets 1s for inputs that are currently being pressed and weren't pressed last time
+ReadControllerNewlyPressed:
+    call ReadController
+
+    ld a, [LastControllerInput]
+    ld c, a
+
+    ; curr input in b
+    ; old input in c
+    ; output in h
+    ld h, 0
+    ld d, 1 ; bitmask
+    ld e, 8 ; loop counter
+.loop
+    ld a, c
+    and d
+    jr nz, .skip
+    ; prev input was 0, check if curr input is 1
+    ld a, b
+    and d
+    jr z, .skip
+    ; prev was 0 and curr is 1, set output 1
+    ld a, h
+    or d
+    ld h, a
+.skip
+    sla d
+    dec e
+    jr nz, .loop
+
+    ld a, b
+    ld [LastControllerInput], a
+
+    ld b, h
+
+    ret
+
 VBlank:
     push af
     push bc
     push de
     push hl
 
-    ; TODO
+    call ReadControllerNewlyPressed
+
+    bit 4, b
+    jr z, .testLeft
+    ld a, [FallingSpriteOffset]
+    inc a
+    cp 11
+    jr nz, .updateFallingSpriteOffset
+    xor a
+    jr .updateFallingSpriteOffset
+
+.testLeft
+    bit 5, b
+    jr z, .updateFallingSprite
+    ld a, [FallingSpriteOffset]
+    dec a
+    cp $ff
+    jr nz, .updateFallingSpriteOffset
+    ld a, 10
+.updateFallingSpriteOffset
+    ld d, a
+
+    ; reset y coord of now no longer falling sprite
+    ld hl, OAMBuffer
+    ld a, [FallingSpriteOffset]
+    ; multiply by 4 to get offset of OAM entry
+    sla a
+    sla a
+    ld b, 0
+    ld c, a
+    add hl, bc
+    ld a, SPRITE_Y
+    ld [hl], a
+
+    ld a, d
+    ld [FallingSpriteOffset], a
+
+.updateFallingSprite
+    ; add 1 to the y coord of the designated falling sprite
+    ld hl, OAMBuffer
+    ld a, [FallingSpriteOffset]
+    ; multiply by 4 to get offset of OAM entry
+    sla a
+    sla a
+    ld b, 0
+    ld c, a
+    add hl, bc
+    ld a, [hl]
+    inc a
+    cp 144 + 16 + 8
+    jr nz, .noWrap
+    ld a, 16
+.noWrap
+    ld [hl], a
+
+    ld de, OAMBuffer
+    ld hl, OAM_START
+    ld bc, OAM_SIZE
+.oamUpdateLoop
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec bc
+    ld a, b
+    or a, c
+    jr nz, .oamUpdateLoop
 
     pop hl
     pop de
@@ -204,63 +358,73 @@ Tiles:
     dw `33333333
 TilesEnd:
 
-DEF SPRITE_START EQU 10
-DEF SPRITE_OFFSET EQU 4
+DEF SPRITE_Y EQU 16 + 60
+DEF SPRITE_START EQU 9
+DEF SPRITE_OFFSET EQU 15
 
 SpriteAttrs:
     ; Sprite #1
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*0,   ; x
     db 1,       ; tile number
     db 0,       ; flags
     ; Sprite #2
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*1,  ; x
     db 2,  ; tile number
     db OAMF_PAL1,  ; flags
     ; Sprite #3
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*2,  ; x
     db 3,  ; tile number
     db 0,  ; flags
     ; Sprite #4
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*3,  ; x
     db 4,  ; tile number
     db OAMF_PAL1,  ; flags
     ; Sprite #5
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*4,  ; x
     db 5,  ; tile number
     db 0,  ; flags
     ; Sprite #6
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*5,  ; x
     db 6,  ; tile number
     db OAMF_PAL1,  ; flags
     ; Sprite #7
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*6,  ; x
     db 7,  ; tile number
     db 0,  ; flags
     ; Sprite #8
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*7,  ; x
     db 8,  ; tile number
     db OAMF_PAL1,  ; flags
     ; Sprite #9
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*8,  ; x
     db 9,  ; tile number
     db 0,  ; flags
     ; Sprite #10
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*9,  ; x
     db 10,  ; tile number
     db OAMF_PAL1,  ; flags
     ; Sprite #11
-    db 16 + 60, ; y
+    db SPRITE_Y ; y
     db SPRITE_START + SPRITE_OFFSET*10,  ; x
     db 11,  ; tile number
     db 0,  ; flags
 SpriteAttrsEnd:
+
+SECTION "WRAM", WRAM0
+
+OAMBuffer:
+    ds OAM_SIZE
+OAMBufferEnd:
+
+FallingSpriteOffset: db
+LastControllerInput: db
