@@ -8,7 +8,7 @@ fn inc_r8() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RC] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RC], 0x06);
     assert_eq!(gb.regs[RF], 0);
@@ -22,7 +22,7 @@ fn inc_r8_overflow() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RC] = 0xff;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RC], 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_H);
@@ -36,7 +36,7 @@ fn dec_r8() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RC] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RC], 0x04);
     assert_eq!(gb.regs[RF], FLAG_N | FLAG_H);
@@ -50,7 +50,7 @@ fn dec_r8_z() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RC] = 0x01;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RC], 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_N | FLAG_H);
@@ -64,7 +64,7 @@ fn dec_r8_underflow() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RC] = 0x00;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RC], 0xff);
     assert_eq!(gb.regs[RF], FLAG_N);
@@ -80,7 +80,7 @@ fn inc_id_hl() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x06);
     assert_eq!(gb.regs[RF], 0);
@@ -96,7 +96,7 @@ fn inc_id_hl_overflow() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_H);
@@ -112,7 +112,7 @@ fn dec_id_hl() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x04);
     assert_eq!(gb.regs[RF], FLAG_N | FLAG_H);
@@ -128,7 +128,7 @@ fn dec_id_hl_z() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x00);
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_N | FLAG_H);
@@ -144,7 +144,7 @@ fn dec_id_hl_underflow() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0xFF);
     assert_eq!(gb.regs[RF], FLAG_N);
@@ -160,7 +160,7 @@ fn add_r8() {
     gb.regs[RA] = 0x05;
     gb.regs[RE] = 0x94;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.regs[RF], 0);
@@ -176,7 +176,7 @@ fn adc_r8() {
     gb.regs[RA] = 0x05;
     gb.regs[RE] = 0x94;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x9A);
     assert_eq!(gb.regs[RF], 0);
@@ -192,7 +192,7 @@ fn sub_r8() {
     gb.regs[RA] = 0x99;
     gb.regs[RE] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x94);
     assert_eq!(gb.regs[RF], FLAG_N);
@@ -208,7 +208,7 @@ fn sbc_r8() {
     gb.regs[RA] = 0x99;
     gb.regs[RE] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x93);
     assert_eq!(gb.regs[RF], FLAG_N);
@@ -223,7 +223,7 @@ fn cp_eq() {
     gb.regs[RA] = 0x99;
     gb.regs[RE] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_Z | FLAG_N);
     assert_eq!(gb.cycles, 1);
@@ -237,7 +237,7 @@ fn cp_lt() {
     gb.regs[RA] = 0x99;
     gb.regs[RE] = 0x9a;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_N | FLAG_H | FLAG_C);
     assert_eq!(gb.cycles, 1);
@@ -251,7 +251,7 @@ fn cp_gt() {
     gb.regs[RA] = 0x9a;
     gb.regs[RE] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_N);
     assert_eq!(gb.cycles, 1);
@@ -268,7 +268,7 @@ fn add_16_hl() {
     gb.regs[RE] = 0xff;
     gb.regs[RF] = FLAG_Z | FLAG_N;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_Z);
     assert_eq!(gb.regs[RH], 0x06);
@@ -288,7 +288,7 @@ fn add_16_hl_h() {
     gb.regs[RE] = 0xff;
     gb.regs[RF] = FLAG_Z | FLAG_N;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_Z);
     assert_eq!(gb.regs[RH], 0x06);
@@ -308,8 +308,8 @@ fn daa_add() {
     gb.regs[RB] = 0x38;
     gb.regs[RF] = FLAG_H;
 
-    step(&mut gb);
-    step(&mut gb);
+    step(&mut gb).unwrap();
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], 0);
     assert_eq!(gb.regs[RA], 0x83);
@@ -328,8 +328,8 @@ fn daa_sub() {
     gb.regs[RB] = 0x38;
     gb.regs[RF] = FLAG_H;
 
-    step(&mut gb);
-    step(&mut gb);
+    step(&mut gb).unwrap();
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RF], FLAG_N);
     assert_eq!(gb.regs[RA], 0x45);

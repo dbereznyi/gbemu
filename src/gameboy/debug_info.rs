@@ -1,5 +1,5 @@
 use std::sync::{Arc};
-use std::sync::atomic::{AtomicU8, AtomicU64};
+use std::sync::atomic::{AtomicU64};
 
 pub struct DebugInfoCpu {
     pub expected_time_nanos: Arc<AtomicU64>,

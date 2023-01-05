@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration};
 use crate::gameboy::gameboy::{*};

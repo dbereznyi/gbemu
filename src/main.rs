@@ -252,7 +252,7 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
             println!("PPU: {}/{} ({:.4}%), oam {}ns", ppu_expected, ppu_actual, (ppu_expected as f64 / ppu_actual as f64) * 100.0, oam_time);
         }
 
-        frames += 1;
+        frames = (Wrapping(frames) + Wrapping(1)).0;
 
         thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }

@@ -9,7 +9,7 @@ fn ld_r8_r8() {
     gb.regs[RB] = 0x12;
     gb.regs[RC] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RB], 0x34);
     assert_eq!(gb.cycles, 1);
@@ -22,7 +22,7 @@ fn ld_r8_d8() {
     let mut gb = Gameboy::new(cartridge);
     gb.regs[RB] = 0x12;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RB], 0x99);
     assert_eq!(gb.cycles, 2);
@@ -37,7 +37,7 @@ fn ld_hl_d8() {
     gb.regs[RH] = 0xc2;
     gb.regs[RL] = 0x34;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x99);
     assert_eq!(gb.cycles, 3);
@@ -53,7 +53,7 @@ fn ld_id_r8() {
     gb.regs[RC] = 0x34;
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
     
     assert_eq!(gb.read(0xc234), 0x99);
     assert_eq!(gb.cycles, 2);
@@ -69,7 +69,7 @@ fn ld_r8_id() {
     gb.regs[RC] = 0x34;
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
     
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.cycles, 2);
@@ -85,7 +85,7 @@ fn ld_ra_hl_inc() {
     gb.regs[RL] = 0x34;
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
     
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(rr_to_u16(&mut gb, RHL), 0xc235);
@@ -102,7 +102,7 @@ fn ld_ra_hl_dec() {
     gb.regs[RL] = 0x34;
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
     
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(rr_to_u16(&mut gb, RHL), 0xc233);
@@ -119,7 +119,7 @@ fn ld_hl_ra_inc() {
     gb.regs[RL] = 0x34;
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x99);
     assert_eq!(rr_to_u16(&mut gb, RHL), 0xc235);
@@ -136,7 +136,7 @@ fn ld_hl_ra_dec() {
     gb.regs[RL] = 0x34;
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0x99);
     assert_eq!(rr_to_u16(&mut gb, RHL), 0xc233);
@@ -151,7 +151,7 @@ fn ld_ra_nn() {
     gb.write(0xc234, 0x99);
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.cycles, 4);
@@ -165,7 +165,7 @@ fn ld_nn_ra() {
     gb.write(0xc234, 0x05);
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.cycles, 4);
@@ -180,7 +180,7 @@ fn ldh_ra_rc() {
     gb.regs[RC] = 0x03;
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.cycles, 2);
@@ -195,7 +195,7 @@ fn ldh_rc_ra() {
     gb.regs[RC] = 0x03;
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xff00 + 0x03), 0x99);
     assert_eq!(gb.cycles, 2);
@@ -209,7 +209,7 @@ fn ldh_ra_n()  {
     gb.write(0xff00 + 0x03, 0x99);
     gb.regs[RA] = 0x05;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RA], 0x99);
     assert_eq!(gb.cycles, 3);
@@ -223,7 +223,7 @@ fn ldh_n_ra()  {
     gb.write(0xff00 + 0x03, 0x05);
     gb.regs[RA] = 0x99;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xff00 + 0x03), 0x99);
     assert_eq!(gb.cycles, 3);
@@ -237,7 +237,7 @@ fn ld_r16_d16() {
     gb.regs[RD] = 0x05;
     gb.regs[RE] = 0x06;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(rr_to_u16(&gb, RDE), 0xbeef);
     assert_eq!(gb.cycles, 3);
@@ -250,7 +250,7 @@ fn ld_rsp_d16() {
     let mut gb = Gameboy::new(cartridge);
     gb.sp = 0x0506;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.sp, 0xbeef);
     assert_eq!(gb.cycles, 3);
@@ -265,7 +265,7 @@ fn ld_nn_sp() {
     gb.write(0xc235, 0x06);
     gb.sp = 0xfffe;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.read(0xc234), 0xff);
     assert_eq!(gb.read(0xc235), 0xfe);
@@ -281,7 +281,7 @@ fn ld_sp_hl() {
     gb.regs[RL] = 0xee;
     gb.sp = 0xfffe;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.sp, 0xffee);
     assert_eq!(gb.cycles, 2);
@@ -296,7 +296,7 @@ fn push() {
     gb.regs[RC] = 0xef;
     gb.sp = 0xfffe;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.sp, 0xfffc);
     assert_eq!(gb.read(0xfffd), 0xbe);
@@ -315,7 +315,7 @@ fn pop() {
     gb.write(0xfffd, 0xbe);
     gb.write(0xfffc, 0xef);
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.sp, 0xfffe);
     assert_eq!(gb.regs[RB], 0xbe);
@@ -332,7 +332,7 @@ fn ld_hl_sp_r8_positive() {
     gb.regs[RL] = 0x06;
     gb.sp = 0xcf00;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RH], 0xcf);
     assert_eq!(gb.regs[RL], 0x07);
@@ -349,7 +349,7 @@ fn ld_hl_sp_r8_negative() {
     gb.regs[RL] = 0x06;
     gb.sp = 0xcf00;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RH], 0xce);
     assert_eq!(gb.regs[RL], 0xf9);
@@ -366,7 +366,7 @@ fn ld_hl_sp_r8_flag_c() {
     gb.regs[RL] = 0x06;
     gb.sp = 0xfffd;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RH], 0xff);
     assert_eq!(gb.regs[RL], 0x7d);
@@ -383,7 +383,7 @@ fn ld_hl_sp_r8_flag_h() {
     gb.regs[RL] = 0x06;
     gb.sp = 0xff88;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RH], 0xff);
     assert_eq!(gb.regs[RL], 0x90);
@@ -400,7 +400,7 @@ fn ld_hl_sp_r8_flag_hc() {
     gb.regs[RL] = 0x06;
     gb.sp = 0xc08c;
 
-    step(&mut gb);
+    step(&mut gb).unwrap();
 
     assert_eq!(gb.regs[RH], 0xc0);
     assert_eq!(gb.regs[RL], 0x14);

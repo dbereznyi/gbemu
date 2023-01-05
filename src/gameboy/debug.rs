@@ -1,6 +1,4 @@
-use std::num::ParseIntError;
 use std::ops::Range;
-use std::collections::HashMap;
 use std::sync::atomic::{Ordering};
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::cpu::{decode};
@@ -59,6 +57,9 @@ impl DebugCmd {
         }
         if cmd == "bl" {
             return Ok(DebugCmd::BreakList);
+        }
+        if cmd == "bc" {
+            return Ok(DebugCmd::BreakClear);
         }
         if cmd.starts_with("ba ") {
             let args = cmd.splitn(2, " ").collect::<Vec<&str>>()[1];

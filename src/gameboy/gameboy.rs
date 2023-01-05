@@ -49,7 +49,6 @@ pub const IO_WX: usize   = 0x4b;
 // of the io_ports array
 pub const IO_IE: usize   = 0x4c;
 
-pub const P1_IN: u8      = 0b0000_1111;
 pub const P1_OUT: u8     = 0b0011_0000;
 pub const P1_P14_OUT: u8 = 0b0001_0000;
 pub const P1_P15_OUT: u8 = 0b0010_0000;

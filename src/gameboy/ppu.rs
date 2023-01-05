@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex, Condvar};
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::num::{Wrapping};
-use std::convert::TryInto;
 use crate::gameboy::gameboy::{*};
 use crate::gameboy::debug_info::{DebugInfoPpu};
 use crate::gameboy::utils::{sleep_precise};
