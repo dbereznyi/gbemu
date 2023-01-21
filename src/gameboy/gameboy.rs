@@ -1,7 +1,6 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
 use crate::gameboy::cartridge::{*};
 
 /// 8-bit register.

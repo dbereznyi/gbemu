@@ -1,7 +1,8 @@
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicU8, Ordering};
+use crate::gameboy::bess::{*};
 
-/// A Gameboy cartridge with ROM and potentially RAM that can be read/written to.
+/// A Gameboy cartridge with ROM and maybe RAM that can be read/written to.
 /// Cartridges with memory bank controllers use writes to ROM to do things like select ROM banks.
 pub trait CartridgeT {
     fn read_rom(&self, addr: u16) -> u8;
@@ -18,6 +19,7 @@ pub enum CartridgeLoadErr {
     UnsupportedCartridgeType(u8),
 }
 
+#[derive(Debug)]
 enum MbcType {
     NoMbc,
     Mbc1,
@@ -26,7 +28,7 @@ enum MbcType {
     Mbc5,
 }
 
-pub fn load_cartridge(bytes: &[u8]) -> Result<Cartridge, CartridgeLoadErr> {
+pub fn load_cartridge(bytes: &[u8], bess: Option<Bess>) -> Result<Cartridge, CartridgeLoadErr> {
     let cartridge_type = bytes[0x147];
     let (mbc_type, has_battery) = match cartridge_type {
         0x00 => Ok((MbcType::NoMbc, false)),
@@ -64,13 +66,32 @@ pub fn load_cartridge(bytes: &[u8]) -> Result<Cartridge, CartridgeLoadErr> {
 
     let has_timer = cartridge_type == 0x0f || cartridge_type == 0x10;
 
-    match mbc_type {
-        MbcType::NoMbc => Ok(Box::new(CartridgeNoMbc::new(bytes, has_battery))),
-        MbcType::Mbc1 => Ok(Box::new(CartridgeMbc1::new(bytes, has_battery))),
-        MbcType::Mbc2 => Ok(Box::new(CartridgeMbc2::new(bytes, has_battery))),
-        MbcType::Mbc3 => Ok(Box::new(CartridgeMbc3::new(bytes, has_battery, has_timer))),
-        _ => panic!("TODO implement"),
+    let cart: Cartridge = match mbc_type {
+        MbcType::NoMbc => Box::new(CartridgeNoMbc::new(bytes, bess, has_battery)),
+        MbcType::Mbc1 => Box::new(CartridgeMbc1::new(bytes, bess, has_battery)),
+        MbcType::Mbc2 => Box::new(CartridgeMbc2::new(bytes, bess, has_battery)),
+        MbcType::Mbc3 => Box::new(CartridgeMbc3::new(bytes, bess, has_battery, has_timer)),
+        _ => panic!("TODO cartridge type {:#?} not yet implemented", mbc_type),
+    };
+
+    Ok(cart) 
+}
+
+fn copy_mbc_ram(ram: &mut [u8], bess: &Option<Bess>) {
+    let mbc_ram = bess.as_ref().unwrap().core_block.mbc_ram;
+    // Fine if mbc_ram is bigger than expected, just ignore excess bytes.
+    let mbc_ram = if mbc_ram.len() > ram.len() {
+        &mbc_ram[0..ram.len()]
+    } else {
+        &mbc_ram
+    };
+    for (i, b) in mbc_ram.iter().enumerate() {
+        ram[i] = *b;
     }
+}
+
+fn calc_new_rtc_regs(_timestamp: u64, _rtc_s: u8, _rtc_m: u8, _rtc_h: u8, _rtc_dl: u8, _rtc_dh: u8) -> (u8, u8, u8, u8, u8) {
+    panic!("TODO");
 }
 
 /// A cartridge with no memory bank controller.
@@ -82,14 +103,16 @@ struct CartridgeNoMbc {
 }
 
 impl CartridgeNoMbc {
-    fn new(bytes: &[u8], has_battery: bool) -> Self {
+    fn new(bytes: &[u8], bess: Option<Bess>, has_battery: bool) -> Self {
         let mut rom = Box::new([0; 0x8000]);
         for (i, byte) in bytes.iter().enumerate() {
             rom[i] = *byte;
         }
 
-        // TODO load RAM from file if has_battery is true
-        let ram = Box::new([0; 0x2000]);
+        let mut ram = Box::new([0; 0x2000]);
+        if has_battery && bess.is_some() {
+            copy_mbc_ram(ram.as_mut_slice(), &bess);
+        }
 
         Self {
             rom: rom,
@@ -141,13 +164,16 @@ struct CartridgeMbc1 {
 }
 
 impl CartridgeMbc1 {
-    fn new(bytes: &[u8], has_battery: bool) -> Self {
+    fn new(bytes: &[u8], bess: Option<Bess>, has_battery: bool) -> Self {
         let mut rom = Box::new([0; 128 * 0x4000]);
         for (i, byte) in bytes.iter().enumerate() {
             rom[i] = *byte;
         }
 
-        // TODO create/open a file to persist cartridge RAM if has_battery is true
+        let mut ram = Box::new([0; 4 * 0x2000]);
+        if has_battery && bess.is_some() {
+            copy_mbc_ram(ram.as_mut_slice(), &bess);
+        }
 
         Self {
             write_protect_on: true,
@@ -155,7 +181,7 @@ impl CartridgeMbc1 {
             ram_or_upper_rom_bank_code: 0x00,
             large_ram_mode: false,
             rom: rom,
-            ram: Box::new([0; 4 * 0x2000]),
+            ram: ram,
         }
     }
 }
@@ -229,19 +255,22 @@ struct CartridgeMbc2 {
 }
 
 impl CartridgeMbc2 {
-    fn new(bytes: &[u8], has_battery: bool) -> Self {
+    fn new(bytes: &[u8], bess: Option<Bess>, has_battery: bool) -> Self {
         let mut rom = Box::new([0; 16 * 0x4000]);
         for (i, byte) in bytes.iter().enumerate() {
             rom[i] = *byte;
         }
 
-        // TODO create/open a file to persist cartridge RAM if has_battery is true
+        let mut ram = Box::new([0; 512]);
+        if has_battery && bess.is_some() {
+            copy_mbc_ram(ram.as_mut_slice(), &bess);
+        }
 
         Self {
             write_protect_on: true,
             rom_bank_code: 0x00,
             rom: rom,
-            ram: Box::new([0; 512]),
+            ram: ram,
         }
     }
 }
@@ -300,28 +329,34 @@ struct CartridgeMbc3 {
     rtc_m: Arc<AtomicU8>,
     /// RTC register: hours counter.
     rtc_h: Arc<AtomicU8>,
-    /// RTC register: days (lower) counter.
+    /// RTC register: days (low) counter.
     rtc_dl: Arc<AtomicU8>,
-    /// RTC register: days (higher) counter.
+    /// RTC register: days (high) counter.
     rtc_dh: Arc<AtomicU8>,
 }
 
 impl CartridgeMbc3 {
-    fn new(bytes: &[u8], has_battery: bool, has_timer: bool) -> Self {
+    fn new(bytes: &[u8], bess: Option<Bess>, has_battery: bool, has_timer: bool) -> Self {
         let mut rom = Box::new([0; 128 * 0x4000]);
         for (i, byte) in bytes.iter().enumerate() {
             rom[i] = *byte;
         }
 
-        // TODO read RAM from file is battery-powered
-        let ram = Box::new([0; 4 * 0x2000]);
+        let mut ram = Box::new([0; 4 * 0x2000]);
+        if has_battery && bess.is_some() {
+            copy_mbc_ram(ram.as_mut_slice(), &bess);
+        }
 
-        // TODO read these from file if battery-powered and has timer
-        let rtc_s = 0x00;
-        let rtc_m = 0x00;
-        let rtc_h = 0x00;
-        let rtc_dl = 0x00;
-        let rtc_dh = 0x00;
+        let (rtc_s, rtc_m, rtc_h, rtc_dl, rtc_dh) =
+            if has_timer && bess.is_some() && bess.as_ref().unwrap().rtc_block.is_some() {
+                let rtc = bess.as_ref().unwrap().rtc_block.as_ref().unwrap();
+                // TODO Calculate updated timer state using unix timestamp.
+                (rtc.seconds, rtc.minutes, rtc.hours, rtc.days_low, rtc.days_high)
+            } else {
+                (0x00, 0x00, 0x00, 0x00, 0x00)
+            };
+
+        // TODO Start a thread that increments the timer registers once per second.
 
         Self {
             write_protect_on: true,

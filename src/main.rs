@@ -89,10 +89,32 @@ impl Config {
 
 fn main() -> Result<(), String> {
     let config = Config::new()?;
+
+    let bess_filename = format!("{}.bess", &config.rom_filepath);
+    let bess_bytes = match fs::read(&bess_filename) {
+        Err(err) => {
+            eprintln!("Couldn't open BESS file '{}': {}", bess_filename, err);
+            vec![]
+        },
+        Ok(bess_bytes) => bess_bytes,
+    };
+    let bess = if !bess_bytes.is_empty() {
+        match Bess::new(&bess_bytes, &bess_filename) {
+            Err(err) => {
+                eprintln!("Couldn't read BESS file '{}': {}", bess_filename, err);
+                None
+            },
+            Ok(bess) => {
+                Some(bess)
+            },
+        }
+    } else { None };
+
     let cart_bytes = fs::read(&config.rom_filepath)
         .expect("Failed to open ROM file");
-    let cart = load_cartridge(&cart_bytes)
+    let cart = load_cartridge(&cart_bytes, bess)
         .expect("Failed to parse ROM file");
+
     run_gameboy(cart, config)
 }
 

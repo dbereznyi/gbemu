@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 sdl2 = "0.35"
 argparse = "0.2.2"
+self_cell = "0.10.2"

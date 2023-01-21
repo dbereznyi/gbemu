@@ -7,5 +7,5 @@ pub fn test_cartridge(bytes: Vec<u8>) -> Cartridge {
     for (i, byte) in bytes.iter().enumerate() {
         rom[0x0100 + i] = *byte;
     }
-    load_cartridge(&*rom).unwrap()
+    load_cartridge(&*rom, None).unwrap()
 }

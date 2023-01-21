@@ -6,6 +6,7 @@ mod cartridge;
 mod debug;
 mod debug_info;
 mod utils;
+mod bess;
 
 pub use gameboy::{*};
 pub use cpu::{*};
@@ -15,3 +16,4 @@ pub use cartridge::{*};
 pub use debug::{*};
 pub use debug_info::{*};
 pub use utils::{*};
+pub use bess::{*};
