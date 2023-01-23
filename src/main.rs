@@ -8,7 +8,7 @@ use std::fs;
 use std::num::{Wrapping};
 use std::sync::{Arc};
 use std::sync::atomic::{Ordering};
-use sdl2::event::{Event};
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::pixels::{PixelFormatEnum};
 use argparse::{ArgumentParser, Store, StoreTrue};
@@ -20,6 +20,7 @@ struct Config {
     pub palette: [(u8,u8,u8); 4],
     pub debug_show_speed: bool,
     pub breakpoints: Vec<u16>,
+    pub vram_viewer: bool,
 }
 
 impl Config {
@@ -29,6 +30,7 @@ impl Config {
         let mut palette_str = String::from("grey");
         let mut debug_show_speed = false;
         let mut breakpoints_str = String::from("");
+        let mut vram_viewer = false;
 
         {
             let mut ap = ArgumentParser::new();
@@ -42,6 +44,8 @@ impl Config {
                 .add_option(&["-d", "--debug-speed"], StoreTrue, "Write CPU and PPU speed to console");
             ap.refer(&mut breakpoints_str)
                 .add_option(&["-b", "--breakpoints"], Store, "List of addresses (in hexadecimal) to set as breakpoints for debugging, separated by commas");
+            ap.refer(&mut vram_viewer)
+                .add_option(&["-v", "--vram"], StoreTrue, "Display the VRAM viewer");
             ap.parse_args()
                 .map_err(|e| format!("Argument parsing failed with error code {e}"))?;
         }
@@ -81,6 +85,7 @@ impl Config {
             palette,
             debug_show_speed,
             breakpoints,
+            vram_viewer,
         };
 
         Ok(config)
@@ -130,6 +135,7 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
     let controller_data_sdl = gb.controller_data.clone();
     let interrupt_received_sdl = Arc::clone(&gb.interrupt_received);
     let screen_sdl = gb.screen.clone();
+    let vram_sdl = gb.vram.clone();
 
     let debug_info_cpu = DebugInfoCpu::new();
     let debug_info_ppu = DebugInfoPpu::new();
@@ -185,20 +191,59 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
 
     canvas.clear();
 
+    let vram_window = video_subsystem
+        .window("vram viewer", 128 * config.scale, 128 * config.scale)
+        .opengl()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let vram_window_id = vram_window.id();
+    let mut vram_canvas = vram_window
+        .into_canvas()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let vram_texture_creator = vram_canvas.texture_creator();
+    let mut vram_texture = vram_texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGB24, 128, 128)
+        .map_err(|e| e.to_string())?;
+    vram_canvas.clear();
+
+    if !config.vram_viewer {
+        vram_canvas.window_mut().hide();
+    }
+
     let mut frames: u128 = 0;
     let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } => break 'running,
+                Event::Window { win_event: WindowEvent::Close, .. } | Event::Quit { .. } => break 'running,
                 Event::KeyDown { keycode: Some(kc), .. } => {
                     match kc {
-                        Keycode::L => io_ports_sdl.xor(IO_LCDC, LCDC_ON), // Toggle LDC on/off
+                        Keycode::L => io_ports_sdl.xor(IO_LCDC, LCDC_ON), // Toggle LCD on/off
                         Keycode::S => io_ports_sdl.xor(IO_LCDC, LCDC_OBJ_DISP), // Toggle sprites
                         Keycode::B => io_ports_sdl.xor(IO_LCDC, LCDC_BG_DISP), // Toggle background
                         Keycode::W => io_ports_sdl.xor(IO_LCDC, LCDC_WIN_DISP), // Toggle window
                         _ => {}
                     };
+                },
+                Event::MouseMotion { window_id, x, y, .. } => {
+                    if config.vram_viewer && window_id == vram_window_id {
+                        let x = x as u32 / config.scale;
+                        let y = y as u32 / config.scale;
+                        let tile_data_ix = (y / 8)*16 + (x / 8);
+                        let row_ix = y % 8;
+                        let row_start = (tile_data_ix * 16) + (row_ix * 2);
+                        let lcdc = io_ports_sdl.read(IO_LCDC);
+                        let base_addr = 
+                            if lcdc & LCDC_TILE_DATA > 0 {
+                                0x8000
+                            } else {
+                                0x8800
+                            };
+                        let row_addr = base_addr + row_start;
+                        let title = format!("vram viewer - tile #{} (${:>4X})", tile_data_ix, row_addr);
+                        vram_canvas.window_mut().set_title(title.as_str()).unwrap();
+                    }
                 },
                 _ => {}
             }
@@ -263,6 +308,45 @@ fn run_gameboy(cartridge: Cartridge, config: Config) -> Result<(), String> {
         })?;
         canvas.copy(&texture, None, None)?;
         canvas.present();
+
+        if config.vram_viewer {
+            vram_texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+                let vram = vram_sdl.lock().unwrap();
+                let lcdc = io_ports_sdl.read(IO_LCDC);
+                let bgp = io_ports_sdl.read(IO_BGP);
+                // TODO This should be configurable by the user in some way (e.g. drop-down menu).
+                let bg_tile_data = 
+                    if lcdc & LCDC_TILE_DATA > 0 { 
+                        &vram[0x0000..0x1000] 
+                    } else {
+                        &vram[0x0800..0x1800]
+                    };
+
+                for y in 0..128 {
+                    for x in 0..128 {
+                        let tile_data_ix = (y / 8)*16 + (x / 8);
+                        let row_ix = y % 8;
+                        let col_ix = x % 8;
+                        let row_start = (tile_data_ix * 16) + (row_ix * 2);
+                        let row = &bg_tile_data[row_start..row_start+2];
+                        let col_mask = 1 << (7 - col_ix);
+                        let high_bit = (row[1] & col_mask) >> (7 - col_ix);
+                        let low_bit = (row[0] & col_mask) >> (7 - col_ix);
+                        let palette_ix = 2*high_bit + low_bit;
+                        let bgp_mask = 0b11 << (palette_ix * 2);
+                        let bgp_palette_ix = (bgp & bgp_mask) >> (palette_ix * 2);
+                        let pixel = config.palette[bgp_palette_ix as usize];
+
+                        let offset = y*pitch + x*3;
+                        buffer[offset] = pixel.0;
+                        buffer[offset + 1] = pixel.1;
+                        buffer[offset + 2] = pixel.2;
+                    }
+                }
+            })?;
+            vram_canvas.copy(&vram_texture, None, None)?;
+            vram_canvas.present();
+        }
 
         if config.debug_show_speed && frames % 30 == 0 {
             let cpu_expected = debug_info_cpu.expected_time_nanos.load(Ordering::Relaxed);
